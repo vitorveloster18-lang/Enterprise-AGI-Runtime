@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taiane Gramin - Corretora de Imóveis | Porto Verde, Alvorada</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --gold: #C9A962;
+            --gold-light: #E8D5A3;
+            --dark: #1A1A2E;
+            --darker: #0F0F1A;
+            --white: #FFFFFF;
+            --gray: #F5F5F5;
+            --text-gray: #666666;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--dark);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .logo {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8rem;
+            color: var(--gold);
+            font-weight: 600;
+        }
+
+        .logo span {
+            color: var(--white);
+            font-weight: 400;
+        }
+
+        nav ul {
+            display: flex;
+            list-style: none;
+            gap: 2.5rem;
+        }
+
+        nav a {
+            color: var(--white);
+            text-decoration: none;
+            font-weight: 400;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+            position: relative;
+        }
+
+        nav a::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--gold);
+            transition: width 0.3s ease;
+        }
+
+        nav a:hover {
+            color: var(--gold);
+        }
+
+        nav a:hover::after {
+            width: 100%;
+        }
+
+        .btn-cta {
+            background: var(--gold);
+            color: var(--dark);
+            padding: 0.8rem 1.8rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 2px solid var(--gold);
+        }
+
+        .btn-cta:hover {
+            background: transparent;
+            color: var(--gold);
+        }
+
+        /* Hero Section */
+        .hero {
+            height: 100vh;
+            background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=1920') center/cover;
+            opacity: 0.4;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+            color: var(--white);
+            max-width: 900px;
+            padding: 0 2rem;
+        }
+
+        .hero h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 4rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+
+        .hero h1 span {
+            color: var(--gold);
+        }
+
+        .hero p {
+            font-size: 1.3rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            background: var(--gold);
+            color: var(--dark);
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(201, 169, 98, 0.3);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--white);
+            padding: 1rem 2.5rem;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 1rem;
+            border: 2px solid var(--white);
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: var(--white);
+            color: var(--dark);
+        }
+
+        /* Search Bar */
+        .search-section {
+            background: var(--white);
+            padding: 2rem 5%;
+            position: relative;
+            z-index: 10;
+            margin-top: -50px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+            border-radius: 20px;
+        }
+
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr) auto;
+            gap: 1rem;
+            align-items: end;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            color: var(--text-gray);
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-group select,
+        .form-group input {
+            padding: 0.9rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            background: var(--gray);
+            transition: all 0.3s ease;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--gold);
+            background: var(--white);
+        }
+
+        .btn-search {
+            background: var(--dark);
+            color: var(--white);
+            padding: 0.9rem 2rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-search:hover {
+            background: var(--gold);
+            color: var(--dark);
+        }
+
+        /* Featured Properties */
+        .section {
+            padding: 6rem 5%;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-header h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.8rem;
+            color: var(--dark);
+            margin-bottom: 1rem;
+        }
+
+        .section-header p {
+            color: var(--text-gray);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .gold-line {
+            width: 60px;
+            height: 3px;
+            background: var(--gold);
+            margin: 1.5rem auto;
+        }
+
+        .properties-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .property-card {
+            background: var(--white);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            transition: all 0.4s ease;
+            position: relative;
+        }
+
+        .property-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .property-image {
+            height: 280px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .property-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s ease;
+        }
+
+        .property-card:hover .property-image img {
+            transform: scale(1.1);
+        }
+
+        .property-tag {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: var(--gold);
+            color: var(--dark);
+            padding: 0.4rem 1rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .property-favorite {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--white);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .property-favorite:hover {
+            background: var(--gold);
+        }
+
+        .property-favorite i {
+            color: var(--dark);
+            font-size: 1rem;
+        }
+
+        .property-info {
+            padding: 1.5rem;
+        }
+
+        .property-price {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 0.5rem;
+        }
+
+        .property-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 0.5rem;
+        }
+
+        .property-location {
+            color: var(--text-gray);
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .property-features {
+            display: flex;
+            gap: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #eee;
+        }
+
+        .feature {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.9rem;
+            color: var(--text-gray);
+        }
+
+        .feature i {
+            color: var(--gold);
+        }
+
+        /* About Section */
+        .about {
+            background: var(--gray);
+        }
+
+        .about-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            align-items: center;
+        }
+
+        .about-image {
+            position: relative;
+        }
+
+        .about-image img {
+            width: 100%;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .about-image::before {
+            content: '';
+            position: absolute;
+            top: -20px;
+            left: -20px;
+            width: 100%;
+            height: 100%;
+            border: 3px solid var(--gold);
+            border-radius: 20px;
+            z-index: -1;
+        }
+
+        .about-text h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5rem;
+            color: var(--dark);
+            margin-bottom: 1.5rem;
+        }
+
+        .about-text h2 span {
+            color: var(--gold);
+        }
+
+        .about-text p {
+            color: var(--text-gray);
+            margin-bottom: 1.5rem;
+            font-size: 1.05rem;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--gold);
+            font-family: 'Playfair Display', serif;
+        }
+
+        .stat-label {
+            color: var(--text-gray);
+            font-size: 0.9rem;
+        }
+
+        /* Services Section */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .service-card {
+            background: var(--white);
+            padding: 2.5rem 2rem;
+            border-radius: 20px;
+            text-align: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+            transition: all 0.4s ease;
+            border: 1px solid transparent;
+        }
+
+        .service-card:hover {
+            transform: translateY(-10px);
+            border-color: var(--gold);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+        }
+
+        .service-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--gold-light) 0%, var(--gold) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+        }
+
+        .service-icon i {
+            font-size: 2rem;
+            color: var(--dark);
+        }
+
+        .service-card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: var(--dark);
+        }
+
+        .service-card p {
+            color: var(--text-gray);
+            font-size: 0.95rem;
+        }
+
+        /* Testimonials */
+        .testimonials {
+            background: var(--dark);
+            color: var(--white);
+        }
+
+        .testimonials .section-header h2 {
+            color: var(--white);
+        }
+
+        .testimonials .section-header p {
+            color: rgba(255,255,255,0.7);
+        }
+
+        .testimonial-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .testimonial-card {
+            background: rgba(255,255,255,0.05);
+            padding: 2rem;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .testimonial-stars {
+            color: var(--gold);
+            margin-bottom: 1rem;
+        }
+
+        .testimonial-text {
+            font-style: italic;
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+            color: rgba(255,255,255,0.9);
+        }
+
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .testimonial-author img {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .author-info h4 {
+            font-size: 1rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .author-info p {
+            font-size: 0.85rem;
+            color: var(--gold);
+        }
+
+        /* Contact Section */
+        .contact-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .contact-info h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .contact-info p {
+            color: var(--text-gray);
+            margin-bottom: 2rem;
+        }
+
+        .contact-details {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .contact-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--gold);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .contact-icon i {
+            color: var(--dark);
+            font-size: 1.2rem;
+        }
+
+        .contact-text h4 {
+            font-size: 1rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .contact-text p {
+            color: var(--text-gray);
+            margin: 0;
+        }
+
+        .contact-form {
+            background: var(--white);
+            padding: 2.5rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .contact-form input,
+        .contact-form textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .contact-form input:focus,
+        .contact-form textarea:focus {
+            outline: none;
+            border-color: var(--gold);
+        }
+
+        .contact-form textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: var(--dark);
+            color: var(--white);
+            padding: 1rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-submit:hover {
+            background: var(--gold);
+            color: var(--dark);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--darker);
+            color: var(--white);
+            padding: 4rem 5% 2rem;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 3rem;
+            max-width: 1200px;
+            margin: 0 auto 3rem;
+        }
+
+        .footer-brand h3 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8rem;
+            color: var(--gold);
+            margin-bottom: 1rem;
+        }
+
+        .footer-brand p {
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 1.5rem;
+        }
+
+        .social-links {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .social-links a {
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--white);
+            transition: all 0.3s ease;
+        }
+
+        .social-links a:hover {
+            background: var(--gold);
+            color: var(--dark);
+        }
+
+        .footer-links h4 {
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+            color: var(--gold);
+        }
+
+        .footer-links ul {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 0.8rem;
+        }
+
+        .footer-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .footer-links a:hover {
+            color: var(--gold);
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.5);
+            font-size: 0.9rem;
+        }
+
+        /* WhatsApp Float */
+        .whatsapp-float {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: #25D366;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.8rem;
+            box-shadow: 0 5px 20px rgba(37, 211, 102, 0.4);
+            z-index: 1000;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .whatsapp-float:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 30px rgba(37, 211, 102, 0.5);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .services-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .testimonial-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            nav {
+                display: none;
+            }
+            
+            .search-form {
+                grid-template-columns: 1fr;
+            }
+            
+            .about-content,
+            .contact-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .services-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .footer-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            
+            .social-links {
+                justify-content: center;
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="logo">Taiane <span>Gramin</span></div>
+        <nav>
+            <ul>
+                <li><a href="#inicio">Início</a></li>
+                <li><a href="#imoveis">Imóveis</a></li>
+                <li><a href="#sobre">Sobre</a></li>
+                <li><a href="#servicos">Serviços</a></li>
+                <li><a href="#contato">Contato</a></li>
+            </ul>
+        </nav>
+        <a href="#contato" class="btn-cta">Fale Comigo</a>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero" id="inicio">
+        <div class="hero-content">
+            <h1>Encontre o <span>Imóvel dos Seus Sonhos</span> em Porto Verde</h1>
+            <p>Especialista em imóveis em Alvorada - RS. Atendimento personalizado para ajudar você a realizar o sonho da casa própria.</p>
+            <div class="hero-buttons">
+                <a href="#imoveis" class="btn-primary">
+                    <i class="fas fa-search"></i> Ver Imóveis
+                </a>
+                <a href="https://wa.me/5551999999999" class="btn-secondary" target="_blank">
+                    <i class="fab fa-whatsapp"></i> WhatsApp
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Search Section -->
+    <section class="search-section">
+        <form class="search-form">
+            <div class="form-group">
+                <label>Tipo de Imóvel</label>
+                <select>
+                    <option>Todos</option>
+                    <option>Casa</option>
+                    <option>Apartamento</option>
+                    <option>Terreno</option>
+                    <option>Comercial</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Finalidade</label>
+                <select>
+                    <option>Comprar</option>
+                    <option>Alugar</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Quartos</label>
+                <select>
+                    <option>Qualquer</option>
+                    <option>1+</option>
+                    <option>2+</option>
+                    <option>3+</option>
+                    <option>4+</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Faixa de Preço</label>
+                <select>
+                    <option>Qualquer</option>
+                    <option>Até R$ 200.000</option>
+                    <option>R$ 200.000 - 400.000</option>
+                    <option>R$ 400.000 - 600.000</option>
+                    <option>Acima de R$ 600.000</option>
+                </select>
+            </div>
+            <button type="submit" class="btn-search">
+                <i class="fas fa-search"></i> Buscar
+            </button>
+        </form>
+    </section>
+
+    <!-- Featured Properties -->
+    <section class="section" id="imoveis">
+        <div class="section-header">
+            <h2>Imóveis em Destaque</h2>
+            <div class="gold-line"></div>
+            <p>Confira as melhores oportunidades em Porto Verde e região de Alvorada</p>
+        </div>
+        
+        <div class="properties-grid">
+            <!-- Property 1 -->
+            <div class="property-card">
+                <div class="property-image">
+                    <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800" alt="Casa Moderna">
+                    <span class="property-tag">Venda</span>
+                    <button class="property-favorite"><i class="far fa-heart"></i></button>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">R$ 450.000</div>
+                    <h3 class="property-title">Casa Moderna com Piscina</h3>
+                    <div class="property-location">
+                        <i class="fas fa-map-marker-alt"></i> Porto Verde, Alvorada - RS
+                    </div>
+                    <div class="property-features">
+                        <div class="feature"><i class="fas fa-bed"></i> 3 Quartos</div>
+                        <div class="feature"><i class="fas fa-bath"></i> 2 Banheiros</div>
+                        <div class="feature"><i class="fas fa-ruler-combined"></i> 180m²</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Property 2 -->
+            <div class="property-card">
+                <div class="property-image">
+                    <img src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=800" alt="Apartamento">
+                    <span class="property-tag">Aluguel</span>
+                    <button class="property-favorite"><i class="far fa-heart"></i></button>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">R$ 1.800/mês</div>
+                    <h3 class="property-title">Apartamento Novo</h3>
+                    <div class="property-location">
+                        <i class="fas fa-map-marker-alt"></i> Centro, Alvorada - RS
+                    </div>
+                    <div class="property-features">
+                        <div class="feature"><i class="fas fa-bed"></i> 2 Quartos</div>
+                        <div class="feature"><i class="fas fa-bath"></i> 1 Banheiro</div>
+                        <div class="feature"><i class="fas fa-ruler-combined"></i> 75m²</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Property 3 -->
+            <div class="property-card">
+                <div class="property-image">
+                    <img src="https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=800" alt="Casa Térrea">
+                    <span class="property-tag">Venda</span>
+                    <button class="property-favorite"><i class="far fa-heart"></i></button>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">R$ 320.000</div>
+                    <h3 class="property-title">Casa Térrea com Quintal</h3>
+                    <div class="property-location">
+                        <i class="fas fa-map-marker-alt"></i> Porto Verde, Alvorada - RS
+                    </div>
+                    <div class="property-features">
+                        <div class="feature"><i class="fas fa-bed"></i> 2 Quartos</div>
+                        <div class="feature"><i class="fas fa-bath"></i> 1 Banheiro</div>
+                        <div class="feature"><i class="fas fa-ruler-combined"></i> 120m²</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Property 4 -->
+            <div class="property-card">
+                <div class="property-image">
+                    <img src="https://images.unsplash.com/photo-1600573472592-401b489a3cdc?w=800" alt="Sobrado">
+                    <span class="property-tag">Venda</span>
+                    <button class="property-favorite"><i class="far fa-heart"></i></button>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">R$ 580.000</div>
+                    <h3 class="property-title">Sobrado de Luxo</h3>
+                    <div class="property-location">
+                        <i class="fas fa-map-marker-alt"></i> Porto Verde, Alvorada - RS
+                    </div>
+                    <div class="property-features">
+                        <div class="feature"><i class="fas fa-bed"></i> 4 Quartos</div>
+                        <div class="feature"><i class="fas fa-bath"></i> 3 Banheiros</div>
+                        <div class="feature"><i class="fas fa-ruler-combined"></i> 250m²</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Property 5 -->
+            <div class="property-card">
+                <div class="property-image">
+                    <img src="https://images.unsplash.com/photo-1600047509807-ba8f99d2cdde?w=800" alt="Terreno">
+                    <span class="property-tag">Venda</span>
+                    <button class="property-favorite"><i class="far fa-heart"></i></button>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">R$ 150.000</div>
+                    <h3 class="property-title">Terreno em Condomínio</h3>
+                    <div class="property-location">
+                        <i class="fas fa-map-marker-alt"></i> Porto Verde, Alvorada - RS
+                    </div>
+                    <div class="property-features">
+                        <div class="feature"><i class="fas fa-ruler-combined"></i> 360m²</div>
+                        <div class="feature"><i class="fas fa-home"></i> Condomínio</div>
+                        <div class="feature"><i class="fas fa-check"></i> Escriturado</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Property 6 -->
+            <div class="property-card">
+                <div class="property-image">
+                    <img src="https://images.unsplash.com/photo-1600585154526-990dced4db0d?w=800" alt="Casa Geminada">
+                    <span class="property-tag">Aluguel</span>
+                    <button class="property-favorite"><i class="far fa-heart"></i></button>
+                </div>
+                <div class="property-info">
+                    <div class="property-price">R$ 2.200/mês</div>
+                    <h3 class="property-title">Casa Geminada Nova</h3>
+                    <div class="property-location">
+                        <i class="fas fa-map-marker-alt"></i> Porto Verde, Alvorada - RS
+                    </div>
+                    <div class="property-features">
+                        <div class="feature"><i class="fas fa-bed"></i> 3 Quartos</div>
+                        <div class="feature"><i class="fas fa-bath"></i> 2 Banheiros</div>
+                        <div class="feature"><i class="fas fa-ruler-combined"></i> 140m²</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section class="section about" id="sobre">
+        <div class="about-content">
+            <div class="about-image">
+                <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=800" alt="Taiane Gramin - Corretora de Imóveis">
+            </div>
+            <div class="about-text">
+                <h2>Conheça a <span>Taiane Gramin</span></h2>
+                <p>Sou corretora de imóveis especializada no bairro Porto Verde e região de Alvorada. Com anos de experiência no mercado imobiliário, ajudo famílias a encontrarem o lar perfeito e investidores a realizarem ótimos negócios.</p>
+                <p>Meu compromisso é oferecer um atendimento personalizado, transparente e eficiente. Conheço cada rua, cada condomínio e cada oportunidade da nossa região.</p>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-number">150+</div>
+                        <div class="stat-label">Imóveis Vendidos</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">8</div>
+                        <div class="stat-label">Anos de Experiência</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-number">98%</div>
+                        <div class="stat-label">Clientes Satisfeitos</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Services Section -->
+    <section class="section" id="servicos">
+        <div class="section-header">
+            <h2>Nossos Serviços</h2>
+            <div class="gold-line"></div>
+            <p>Tudo o que você precisa para realizar o sonho da casa própria</p>
+        </div>
+        
+        <div class="services-grid">
+            <div class="service-card">
+                <div class="service-icon">
+                    <i class="fas fa-home"></i>
+                </div>
+                <h3>Compra e Venda</h3>
+                <p>Encontramos o imóvel ideal para você ou vendemos seu imóvel pelo melhor preço.</p>
+            </div>
+            
+            <div class="service-card">
+                <div class="service-icon">
+                    <i class="fas fa-key"></i>
+                </div>
+                <h3>Locação</h3>
+                <p>Alugue com segurança. Fazemos toda a análise e gestão do contrato.</p>
+            </div>
+            
+            <div class="service-card">
+                <div class="service-icon">
+                    <i class="fas fa-file-signature"></i>
+                </div>
+                <h3>Documentação</h3>
+                <p>Cuidamos de toda parte burocrática: escrituras, registros e certidões.</p>
+            </div>
+            
+            <div class="service-card">
+                <div class="service-icon">
+                    <i class="fas fa-calculator"></i>
+                </div>
+                <h3>Financiamento</h3>
+                <p>Assessoria completa para aprovação de financiamento bancário.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="section testimonials">
+        <div class="section-header">
+            <h2>O Que Dizem Nossos Clientes</h2>
+            <div class="gold-line"></div>
+            <p>Depoimentos de quem já realizou o sonho da casa própria</p>
+        </div>
+        
+        <div class="testimonial-grid">
+            <div class="testimonial-card">
+                <div class="testimonial-stars">
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                </div>
+                <p class="testimonial-text">"A Taiane foi incrível! Em menos de um mês encontramos a casa perfeita para nossa família. Super atenciosa e profissional."</p>
+                <div class="testimonial-author">
+                    <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100" alt="Cliente">
+                    <div class="author-info">
+                        <h4>Carlos Silva</h4>
+                        <p>Comprou em Porto Verde</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="testimonial-card">
+                <div class="testimonial-stars">
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                </div>
+                <p class="testimonial-text">"Vendi meu apartamento em tempo recorde e pelo valor que esperava. A Taiane conhece muito bem o mercado local!"</p>
+                <div class="testimonial-author">
+                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100" alt="Cliente">
+                    <div class="author-info">
+                        <h4>Ana Paula</h4>
+                        <p>Vendeu em Alvorada</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="testimonial-card">
+                <div class="testimonial-stars">
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                    <i class="fas fa-star"></i>
+                </div>
+                <p class="testimonial-text">"Processo de locação super tranquilo. A Taiane cuidou de tudo, desde a vistoria até a assinatura do contrato."</p>
+                <div class="testimonial-author">
+                    <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100" alt="Cliente">
+                    <div class="author-info">
+                        <h4>Marcos Oliveira</h4>
+                        <p>Alugou em Porto Verde</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section class="section" id="contato">
+        <div class="contact-content">
+            <div class="contact-info">
+                <h2>Entre em Contato</h2>
+                <p>Pronto para encontrar o imóvel dos seus sonhos? Vamos conversar! Estou disponível para atender você por telefone, WhatsApp ou e-mail.</p>
+                
+                <div class="contact-details">
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fab fa-whatsapp"></i>
+                        </div>
+                        <div class="contact-text">
+                            <h4>WhatsApp</h4>
+                            <p>(51) 99999-9999</p>
+                        </div>
+                    </div>
+                    
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fas fa-phone"></i>
+                        </div>
+                        <div class="contact-text">
+                            <h4>Telefone</h4>
+                            <p>(51) 99999-9999</p>
+                        </div>
+                    </div>
+                    
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fas fa-envelope"></i>
+                        </div>
+                        <div class="contact-text">
+                            <h4>E-mail</h4>
+                            <p>taiane@graminimoveis.com.br</p>
+                        </div>
+                    </div>
+                    
+                    <div class="contact-item">
+                        <div class="contact-icon">
+                            <i class="fas fa-map-marker-alt"></i>
+                        </div>
+                        <div class="contact-text">
+                            <h4>Endereço</h4>
+                            <p>Porto Verde, Alvorada - RS</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="contact-form">
+                <form>
+                    <div class="form-row">
+                        <input type="text" placeholder="Seu Nome" required>
+                        <input type="email" placeholder="Seu E-mail" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="tel" placeholder="Seu Telefone">
+                        <input type="text" placeholder="Assunto">
+                    </div>
+                    <textarea placeholder="Sua Mensagem" required></textarea>
+                    <button type="submit" class="btn-submit">Enviar Mensagem</button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-brand">
+                <h3>Taiane Gramin</h3>
+                <p>Corretora de Imóveis especializada em Porto Verde, Alvorada - RS. Seu sonho da casa própria começa aqui.</p>
+                <div class="social-links">
+                    <a href="#"><i class="fab fa-facebook-f"></i></a>
+                    <a href="#"><i class="fab fa-instagram"></i></a>
+                    <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                    <a href="#"><i class="fab fa-whatsapp"></i></a>
+                </div>
+            </div>
+            
+            <div class="footer-links">
+                <h4>Links Rápidos</h4>
+                <ul>
+                    <li><a href="#inicio">Início</a></li>
+                    <li><a href="#imoveis">Imóveis</a></li>
+                    <li><a href="#sobre">Sobre</a></li>
+                    <li><a href="#contato">Contato</a></li>
+                </ul>
+            </div>
+            
+            <div class="footer-links">
+                <h4>Serviços</h4>
+                <ul>
+                    <li><a href="#">Compra</a></li>
+                    <li><a href="#">Venda</a></li>
+                    <li><a href="#">Locação</a></li>
+                    <li><a href="#">Avaliação</a></li>
+                </ul>
+            </div>
+            
+            <div class="footer-links">
+                <h4>Contato</h4>
+                <ul>
+                    <li><a href="tel:+5551999999999">(51) 99999-9999</a></li>
+                    <li><a href="mailto:taiane@graminimoveis.com.br">taiane@graminimoveis.com.br</a></li>
+                    <li>Porto Verde, Alvorada - RS</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="footer-bottom">
+            <p>&copy; 2024 Taiane Gramin - Corretora de Imóveis. Todos os direitos reservados. CRECI-RS 00000</p>
+        </div>
+    </footer>
+
+    <!-- WhatsApp Float -->
+    <a href="https://wa.me/5551999999999" class="whatsapp-float" target="_blank">
+        <i class="fab fa-whatsapp"></i>
+    </a>
+
+    <script>
+        // Smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Header scroll effect
+        window.addEventListener('scroll', () => {
+            const header = document.querySelector('header');
+            if (window.scrollY > 100) {
+                header.style.background = 'rgba(26, 26, 46, 0.98)';
+                header.style.padding = '0.8rem 5%';
+            } else {
+                header.style.background = 'rgba(26, 26, 46, 0.95)';
+                header.style.padding = '1rem 5%';
+            }
+        });
+
+        // Favorite button toggle
+        document.querySelectorAll('.property-favorite').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const icon = this.querySelector('i');
+                icon.classList.toggle('far');
+                icon.classList.toggle('fas');
+                this.style.background = icon.classList.contains('fas') ? '#C9A962' : '#fff';
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Fallback Configuration for Salem
+# Prioridade: Kimi Cloud → Qwen Local → Gemini API
+
+[[models]]
+name = "kimi-cloud"
+provider = "ollama"
+model = "kimi-k2.5:cloud"
+# endpoint = "URL_DO_SERVICO_CLOUD"
+priority = 1
+
+[[models]]
+name = "qwen-local"
+provider = "ollama"
+model = "qwen2.5:7b"
+endpoint = "http://localhost:11434"
+priority = 2
+fallback = true
+
+# Para ativar Gemini, descomente e adicione sua API key:
+# [[models]]
+# name = "gemini-flash"
+# provider = "google"
+# model = "gemini-2.0-flash"
+# api_key = "SUA_API_KEY_AQUI"
+# priority = 3
+# fallback = true
