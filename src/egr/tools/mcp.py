@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from ..core.config import MCPServerConfig
@@ -32,8 +33,11 @@ class MCPError(Exception):
 class MCPClient:
     """Cliente JSON-RPC sobre stdio (o transporte mais comum em MCP)."""
 
-    def __init__(self, config: MCPServerConfig):
+    def __init__(self, config: MCPServerConfig, workspace: Path | str | None = None):
         self.config = config
+        #: raiz do workspace: scripts MCP com caminho relativo são resolvidos aqui,
+        #  não no diretório atual do processo (que muda conforme quem invoca).
+        self.workspace = Path(workspace) if workspace else None
         self.process: subprocess.Popen | None = None
         self._id = 0
 
@@ -51,6 +55,7 @@ class MCPClient:
                 env=env,
                 text=True,
                 bufsize=1,
+                cwd=str(self.workspace) if self.workspace and self.workspace.is_dir() else None,
             )
         except OSError as exc:
             raise MCPError(f"cannot start MCP server '{self.config.name}': {exc}") from exc
@@ -92,6 +97,17 @@ class MCPClient:
         self.process.stdin.write(json.dumps(payload) + "\n")
         self.process.stdin.flush()
 
+    def _closed_reason(self) -> str:
+        """EOF sem resposta: mostra o stderr do servidor, não só 'fechou a conexão'."""
+
+        detail = ""
+        if self.process is not None:
+            code = self.process.poll()
+            if code is not None:
+                detail = f" (exit={code})"
+        return f"MCP server '{self.config.name}' closed the connection{detail}: " \
+            "verifique o caminho do script, o comando e as dependências do servidor"
+
     def _notify(self, method: str, params: dict) -> None:
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
@@ -104,7 +120,7 @@ class MCPClient:
         while True:
             line = self.process.stdout.readline()
             if not line:
-                raise MCPError(f"MCP server '{self.config.name}' closed the connection")
+                raise MCPError(self._closed_reason())
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
@@ -157,7 +173,7 @@ class MCPToolProxy(Tool):
         )
 
 
-def connect_mcp_servers(config) -> tuple[list[MCPToolProxy], list[dict]]:
+def connect_mcp_servers(config, workspace: Path | str | None = None) -> tuple[list[MCPToolProxy], list[dict]]:
     """Descobre as ferramentas MCP e devolve (proxies, falhas)."""
 
     proxies: list[MCPToolProxy] = []
@@ -168,7 +184,7 @@ def connect_mcp_servers(config) -> tuple[list[MCPToolProxy], list[dict]]:
     for server in getattr(config, "servers", []):
         if not server.enabled:
             continue
-        client = MCPClient(server)
+        client = MCPClient(server, workspace=workspace)
         try:
             tools = client.list_tools()
             for remote in tools:

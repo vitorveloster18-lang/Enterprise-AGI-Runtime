@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from ..core.errors import AuthenticationError, AuthorizationError
 from ..runtime.runtime import Runtime
 from ..version import PHASE, __version__
 
@@ -19,6 +20,7 @@ TAGS = [
     {"name": "runtime", "description": "Estado e saúde do Runtime"},
     {"name": "tasks", "description": "Submissão e inspeção de trabalho"},
     {"name": "governance", "description": "Políticas, aprovações e auditoria"},
+    {"name": "security", "description": "Identidade, RBAC, cofre e chaves"},
 ]
 
 
@@ -32,6 +34,14 @@ class DecisionRequest(BaseModel):
     decision: str = "approve"  # approve | deny
     by: str = "console"
     note: str | None = None
+
+
+def bearer_token(authorization: str | None) -> str | None:
+    """Extrai o token de `Authorization: Bearer egr_<id>.<segredo>`."""
+
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    return authorization.split(" ", 1)[1].strip() or None
 
 
 def create_app(runtime: Runtime) -> FastAPI:
@@ -104,19 +114,55 @@ def create_app(runtime: Runtime) -> FastAPI:
         return [approval.model_dump(mode="json") for approval in runtime.approvals.list(status=status, limit=limit)]
 
     @app.post("/v1/approvals/{approval_id}/decision", tags=["governance"])
-    def decide(approval_id: str, payload: DecisionRequest) -> dict[str, Any]:
+    def decide(
+        approval_id: str,
+        payload: DecisionRequest,
+        authorization: str | None = Header(None, description="Bearer egr_<id>.<segredo>"),
+    ) -> dict[str, Any]:
+        """Decisão humana. Com `identity_required`, exige credencial verificável."""
+
+        token = bearer_token(authorization)
         try:
             if payload.decision == "deny":
-                task = runtime.deny(approval_id, decided_by=payload.by, note=payload.note)
+                task = runtime.deny(approval_id, decided_by=payload.by, note=payload.note, token=token)
             else:
-                task = runtime.approve(approval_id, decided_by=payload.by, note=payload.note)
+                task = runtime.approve(approval_id, decided_by=payload.by, note=payload.note, token=token)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        except AuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         return {
             "approval": approval_id,
             "decision": payload.decision,
             "task": task.model_dump(mode="json") if task else None,
         }
+
+    # ------------------------------------------------------------------
+    @app.get("/v1/security", tags=["security"])
+    def security() -> dict[str, Any]:
+        """Postura de segurança: identidades, cofre, chave e lacunas."""
+
+        return runtime.security_status()
+
+    @app.get("/v1/security/roles", tags=["security"])
+    def security_roles() -> list[dict[str, Any]]:
+        from ..security.rbac import describe
+
+        return describe()["roles"]
+
+    @app.get("/v1/principals", tags=["security"])
+    def principals() -> list[dict[str, Any]]:
+        """Identidades cadastradas (sem tokens e sem segredos)."""
+
+        return [principal.as_row() for principal in runtime.identity.list()]
+
+    @app.get("/v1/principals/whoami", tags=["security"])
+    def whoami(authorization: str | None = Header(None)) -> dict[str, Any]:
+        """Quem é o portador desta credencial, segundo o Runtime?"""
+
+        return runtime.identity.whoami(bearer_token(authorization))
 
     @app.get("/v1/events", tags=["governance"])
     def events(limit: int = 50, type: str | None = None) -> list[dict[str, Any]]:
@@ -173,11 +219,23 @@ def _console_html() -> str:
   <h1>Enterprise AGI Runtime</h1>
   <span class="muted" id="env"></span>
   <span class="muted" id="updated"></span>
+  <span class="row" style="margin-left:auto">
+    <span class="muted">identidade</span>
+    <input id="ident" placeholder="token egr_..." size="34"
+           style="background:#0e1520;border:1px solid #1d2733;color:#d7e0ea;border-radius:6px;padding:4px 8px;font:inherit" />
+    <button onclick="saveIdent()">usar</button>
+    <span class="muted" id="whoami"></span>
+  </span>
 </header>
 <main>
   <section style="grid-column: 1 / -1">
     <h2>Status</h2>
     <div class="cards" id="cards"></div>
+  </section>
+  <section style="grid-column: 1 / -1">
+    <h2>Segurança</h2>
+    <div class="cards" id="seccards"></div>
+    <table id="gaps" style="margin-top:10px"><tbody></tbody></table>
   </section>
   <section>
     <h2>Custo de modelos</h2>
@@ -201,13 +259,32 @@ def _console_html() -> str:
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+const ident = () => localStorage.getItem('egr_token') || '';
+const authHeaders = () => ident() ? {'Content-Type':'application/json','Authorization':'Bearer ' + ident()} : {'Content-Type':'application/json'};
+function saveIdent() {
+  const value = $('ident').value.trim();
+  if (value) localStorage.setItem('egr_token', value); else localStorage.removeItem('egr_token');
+  load();
+}
+
+async function loadIdent() {
+  const token = ident();
+  $('ident').value = token;
+  if (!token) { $('whoami').textContent = 'não autenticado'; return; }
+  try {
+    const me = await fetch('/v1/principals/whoami', {headers: {Authorization: 'Bearer ' + token}}).then(r => r.json());
+    $('whoami').textContent = me.authenticated ? `${me.id} (${(me.roles||[]).join(', ')})` : 'credencial inválida';
+  } catch (e) { $('whoami').textContent = 'erro'; }
+}
+
 async function load() {
-  const [status, approvals, tasks, events, usage] = await Promise.all([
+  const [status, approvals, tasks, events, usage, sec] = await Promise.all([
     fetch('/v1/status').then(r => r.json()),
     fetch('/v1/approvals?status=pending').then(r => r.json()),
     fetch('/v1/tasks?limit=10').then(r => r.json()),
     fetch('/v1/events?limit=25').then(r => r.json()),
     fetch('/v1/usage').then(r => r.json()),
+    fetch('/v1/security').then(r => r.json()),
   ]);
 
   $('env').textContent = `ambiente: ${status.environment} · enterprise: ${status.enterprise.id} · workspace: ${status.workspace}`;
@@ -221,6 +298,18 @@ async function load() {
     ['memória', c.memory.total], ['eventos', c.events],
   ];
   $('cards').innerHTML = cards.map(([k,v]) => `<div class="card"><span class="muted">${k}</span><b>${v}</b></div>`).join('');
+
+  const secCards = [
+    ['principais', sec.identities.active + '/' + sec.identities.total],
+    ['tokens ativos', sec.identities.tokens_active],
+    ['segredos', sec.vault.secrets],
+    ['chave mestra', sec.vault.master_key.key_id || 'ausente'],
+    ['identidade exigida', sec.identity_required ? 'sim' : 'não'],
+  ];
+  $('seccards').innerHTML = secCards.map(([k,v]) => `<div class="card"><span class="muted">${k}</span><b>${esc(v)}</b></div>`).join('');
+  $('gaps').innerHTML = '<tr><th>lacunas de segurança</th></tr>' +
+    ((sec.gaps||[]).length ? sec.gaps.map(g => `<tr><td class="warn">${esc(g)}</td></tr>`).join('')
+      : '<tr><td class="ok">nenhuma lacuna aberta</td></tr>');
 
   const cur = status.budget.currency || 'USD';
   $('costcards').innerHTML = [
@@ -255,13 +344,18 @@ async function load() {
 }
 
 async function decide(id, decision) {
-  await fetch(`/v1/approvals/${id}/decision`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
+  const res = await fetch(`/v1/approvals/${id}/decision`, {
+    method: 'POST', headers: authHeaders(),
     body: JSON.stringify({decision, by: 'console'}),
   });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    alert(`decisão recusada (HTTP ${res.status}): ${detail.detail || 'sem detalhe'}`);
+  }
   load();
 }
 
+loadIdent();
 load();
 setInterval(load, 5000);
 </script>

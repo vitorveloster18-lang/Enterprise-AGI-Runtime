@@ -16,6 +16,7 @@ from .commands import (
     memory,
     models,
     policies,
+    security,
     tasks,
     tools,
     workflows,
@@ -50,6 +51,11 @@ app.add_typer(audits.app, name="audit")
 app.add_typer(workflows.app, name="workflow")
 app.add_typer(mcp.app, name="mcp")
 app.add_typer(governance.app, name="proposal")
+# segurança (Fase 4): identidade, RBAC, cofre e chaves
+app.add_typer(security.app, name="security")
+app.add_typer(security.identity_app, name="identity")
+app.add_typer(security.secret_app, name="secret")
+app.add_typer(security.key_app, name="key")
 
 
 @app.command(name="version")

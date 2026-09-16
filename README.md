@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 3 implementadas** (Foundation + Runtime Core + Model Gateway + Tool Runtime) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 4 implementadas** (Foundation + Runtime Core + Model Gateway + Tool Runtime + Security/Policy) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 56 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP) |
+| Testes | `tests/` | 87 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves) |
 
 ## 6. Comandos principais
 
@@ -195,6 +195,47 @@ egr mcp call mcp.calculadora.somar --arg a=2 --arg b=3 --execute
 Ferramentas MCP são descobertas em runtime e **não herdam permissão nenhuma**: sem
 regra de política, o default deny bloqueia.
 
+## 5.2 Segurança e identidade (Fase 4)
+
+```bash
+# identidade verificável
+egr identity add vitor --roles approver
+egr identity token vitor --ttl-days 30
+egr identity whoami --by egr_tkn_..._<id>.<segredo>
+
+# cofre de segredos (cifrado em repouso)
+egr key init                                        # chave mestra 0600
+printf 'sk-...' | egr secret set openai --provider openai --stdin
+egr secret list                                     # nunca mostra o valor
+egr key rotate                                      # recifra todo o cofre
+
+# postura
+egr security status
+egr security roles --role approver
+```
+
+| Papel | Concede |
+|---|---|
+| `viewer` | leitura de task/política/agente/auditoria |
+| `operator` | executa trabalho (`task.submit`, `tools.execute`, `memory.write`) |
+| `approver` | **`approval.decide`** — decide o crítico |
+| `auditor` | leitura ampla de auditoria |
+| `security_admin` | segredos, chaves, identidades |
+| `admin` | todas (satisfaz qualquer `required_role`) |
+
+Com `security.identity_required: true`, aprovar exige credencial válida, permissão
+`approval.decide` e papel compatível — e agentes nunca aprovam o próprio trabalho.
+Sem isso, a decisão acontece mas a auditoria fica marcada com
+`identity_verified: false`.
+
+```yaml
+models:
+  providers:
+    - name: cloud
+      type: openai_compat
+      api_key_env: vault:openai      # credencial sai do cofre, não do YAML
+```
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -254,6 +295,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE1_RUNTIME_CORE.md`](docs/PHASE1_RUNTIME_CORE.md) — Fase 1
 - [`docs/PHASE2_MODEL_GATEWAY.md`](docs/PHASE2_MODEL_GATEWAY.md) — Fase 2 (custo, latência, orçamento)
 - [`docs/PHASE3_TOOL_RUNTIME.md`](docs/PHASE3_TOOL_RUNTIME.md) — Fase 3 (sandbox, git, e-mail, browser, MCP)
+- [`docs/PHASE4_SECURITY_POLICY.md`](docs/PHASE4_SECURITY_POLICY.md) — Fase 4 (identidade, RBAC, cofre, chaves)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

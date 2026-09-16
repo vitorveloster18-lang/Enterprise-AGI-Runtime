@@ -10,6 +10,7 @@ from typing import Any
 
 from ..audit import AuditLedger
 from ..core.config import Settings, load_settings
+from ..core.errors import AuthenticationError, AuthorizationError
 from ..core.ids import new_id
 from ..core.logging import get_logger, setup_logging
 from ..core.paths import find_workspace_root, require_workspace_root
@@ -30,16 +31,23 @@ from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
 from ..policies import PolicyEngine, default_policies
 from ..policies.engine import PolicyContext
+from ..security.identity import IdentityService, PrincipalKind
+from ..security.keystore import MasterKey, MasterKeyStore
+from ..security.rbac import APPROVAL_DECIDE, PERMISSIONS, ROLES, has_permission, role_satisfies
 from ..security.redaction import redact_mapping
+from ..security.vault import SecretVault
 from ..storage import Database, apply_migrations, migration_status
 from ..storage.repositories import (
     AgentRepository,
     ApprovalRepository,
     ArtifactRepository,
     EnterpriseRepository,
+    IdentityRepository,
+    KeyRepository,
     MemoryRepository,
     ModelUsageRepository,
     PolicyRepository,
+    SecretRepository,
     SettingsRepository,
     TaskRepository,
 )
@@ -124,6 +132,12 @@ class Runtime:
         self.usage = ModelUsageRepository(self.db)
         self.memory = MemoryService(MemoryRepository(self.db), self.audit)
 
+        # ---- segurança (Fase 4) -------------------------------------
+        self.keystore = MasterKeyStore(settings.workspace)
+        self.key_repository = KeyRepository(self.db)
+        self.identity = IdentityService(IdentityRepository(self.db), audit=self.audit)
+        self.vault = SecretVault(SecretRepository(self.db), self.keystore, audit=self.audit)
+
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
         self.policy.set_policies([*default_policies(), *self.policy_repository.list(enabled_only=False)])
@@ -131,6 +145,7 @@ class Runtime:
             build_providers(
                 settings.config.models.providers,
                 timeout=settings.config.runtime.model_timeout,
+                secret_resolver=self.resolve_secret,
             ),
             audit=self.audit,
             external_ai=settings.config.enterprise.settings.external_ai,
@@ -270,6 +285,16 @@ class Runtime:
             "browser": tools.browser.model_dump(),
         }
 
+    def resolve_secret(self, reference: str | None) -> str | None:
+        """Resolve `vault:NOME` (cofre) ou `VARIAVEL` (ambiente).
+
+        É o único caminho pelo qual um provedor de modelo recebe uma credencial.
+        """
+
+        from ..security.secrets import resolve_secret
+
+        return resolve_secret(reference, vault=self.vault)
+
     @property
     def sandbox_info(self) -> dict[str, Any]:
         from ..tools.sandbox import SandboxRunner
@@ -290,7 +315,7 @@ class Runtime:
 
         if not self.settings.config.mcp.servers:
             return
-        proxies, failures = connect_mcp_servers(self.settings.config.mcp)
+        proxies, failures = connect_mcp_servers(self.settings.config.mcp, workspace=self.settings.workspace)
         for proxy in proxies:
             self.tools.register(proxy)
         self.mcp_failures = failures
@@ -407,7 +432,7 @@ class Runtime:
             task_id=task_id,
             step_id=step_id,
             environment=Environment(environment or self.settings.environment),
-            required_role=decision.required_role or "operator",
+            required_role=decision.required_role or self.settings.config.security.approval_min_role,
             reason=decision.reason,
         )
         self.approvals.save(approval)
@@ -427,10 +452,80 @@ class Runtime:
         )
         return approval
 
-    def approve(self, approval_id: str, decided_by: str = "human", note: str | None = None) -> Task:
+    # ---- identidade e autorização (Fase 4) ---------------------------
+    def _authorize_decision(self, approval: Approval, actor: str, token: str | None = None) -> str:
+        """Decide quem pode decidir — e registra a tentativa, válida ou não.
+
+        Retorna o id do decisor efetivo. Com `security.identity_required` ativo
+        só passa um Principal autenticado, com permissão `approval.decide` e com
+        papel que satisfaça o exigido pela política.
+        """
+
+        security = self.settings.config.security
+        principal = self.identity.resolve(token) if token else self.identity.resolve(actor)
+
+        def deny(reason: str) -> None:
+            self.audit.record(
+                EventType.AUTHORIZATION_DENIED,
+                actor=actor or "anonymous",
+                task_id=approval.task_id,
+                environment=str(approval.environment),
+                payload={
+                    "approval": approval.id,
+                    "tool": approval.tool,
+                    "required_role": approval.required_role,
+                    "reason": reason,
+                },
+            )
+            raise AuthorizationError(reason)
+
+        if not security.identity_required:
+            # Sem exigência de identidade o Runtime continua funcionando, mas a
+            # auditoria fica explicitamente marcada como não verificada.
+            return principal.id if principal else (actor or "human")
+
+        if principal is None:
+            # 401: não há identidade verificável (credencial ausente, inválida,
+            # expirada ou revogada). 403 fica para quem tem identidade, mas não
+            # tem permissão — a distinção importa para a API e para a auditoria.
+            self.audit.record(
+                EventType.AUTH_FAILED,
+                actor=actor or "anonymous",
+                task_id=approval.task_id,
+                environment=str(approval.environment),
+                payload={
+                    "approval": approval.id,
+                    "tool": approval.tool,
+                    "required_role": approval.required_role,
+                    "reason": "unverified_identity",
+                },
+            )
+            raise AuthenticationError(
+                "identidade não verificada: decisão exige um principal autenticado "
+                "(use `egr identity token <id>` e --token)"
+            )
+        if not has_permission(principal, APPROVAL_DECIDE):
+            deny(f"'{principal.id}' não tem a permissão '{APPROVAL_DECIDE}'")
+        if not security.allow_agent_approval and principal.kind == PrincipalKind.AGENT:
+            deny(f"agente '{principal.id}' não pode aprovar o próprio trabalho")
+        if not role_satisfies(principal.roles, approval.required_role):
+            deny(
+                f"'{principal.id}' tem papéis {sorted(principal.roles)}, "
+                f"mas a política exige '{approval.required_role}'"
+            )
+        return principal.id
+
+    def approve(
+        self,
+        approval_id: str,
+        decided_by: str = "human",
+        note: str | None = None,
+        token: str | None = None,
+    ) -> Task:
         approval = self.approvals.get(approval_id)
         if approval is None:
             raise KeyError(f"approval {approval_id} not found")
+        decided_by = self._authorize_decision(approval, decided_by, token)
         approval.status = ApprovalStatus.APPROVED
         approval.decided_by = decided_by
         approval.decided_at = approval.decided_at or utcnow()
@@ -448,17 +543,29 @@ class Runtime:
             actor=decided_by,
             task_id=approval.task_id,
             environment=str(approval.environment),
-            payload={"approval": approval.id, "decision": "approved", "tool": approval.tool},
+            payload={
+                "approval": approval.id,
+                "decision": "approved",
+                "tool": approval.tool,
+                "identity_verified": self.identity.resolve(decided_by) is not None,
+            },
         )
         task = self.tasks.get(approval.task_id) if approval.task_id else None
         if task is not None:
             return self.agent_engine.resume_after_approval(task, approval)
         return task
 
-    def deny(self, approval_id: str, decided_by: str = "human", note: str | None = None) -> Task | None:
+    def deny(
+        self,
+        approval_id: str,
+        decided_by: str = "human",
+        note: str | None = None,
+        token: str | None = None,
+    ) -> Task | None:
         approval = self.approvals.get(approval_id)
         if approval is None:
             raise KeyError(f"approval {approval_id} not found")
+        decided_by = self._authorize_decision(approval, decided_by, token)
         approval.status = ApprovalStatus.DENIED
         approval.decided_by = decided_by
         approval.decision_note = note
@@ -510,6 +617,82 @@ class Runtime:
     ) -> Task:
         return self.task_engine.submit(objective, agent_id=agent_id, environment=environment, created_by=created_by)
 
+    # ---- segurança: chaves, cofre e identidade ------------------------
+    def security_status(self) -> dict[str, Any]:
+        """Raio-X da postura de segurança — o que está verificado e o que não está."""
+
+        principals = self.identity.list()
+        key = self.keystore.load()
+        return {
+            "identity_required": self.settings.config.security.identity_required,
+            "allow_agent_approval": self.settings.config.security.allow_agent_approval,
+            "approval_min_role": self.settings.config.security.approval_min_role,
+            "identities": {
+                "total": len(principals),
+                "active": len([item for item in principals if item.active]),
+                "humans": len([item for item in principals if item.kind == PrincipalKind.HUMAN]),
+                "agents": len([item for item in principals if item.kind == PrincipalKind.AGENT]),
+                "services": len([item for item in principals if item.kind == PrincipalKind.SERVICE]),
+                "by_role": {
+                    role: len([item for item in principals if role in item.roles]) for role in ROLES
+                },
+                "tokens_active": len([token for token in self.identity.tokens() if token.usable]),
+            },
+            "vault": self.vault.status(),
+            "master_key_history": self.key_repository.list(),
+            "rbac": {"roles": list(ROLES), "permissions": len(PERMISSIONS)},
+            "gaps": self._security_gaps(key),
+        }
+
+    def _security_gaps(self, key: MasterKey | None) -> list[str]:
+        """Lacunas honestas: o Runtime mostra o que ainda não está garantido."""
+
+        gaps: list[str] = []
+        if not self.settings.config.security.identity_required:
+            gaps.append("identidade não exigida: aprovações podem ser decididas sem principal verificado")
+        if self.identity.count() == 0:
+            gaps.append("nenhum principal cadastrado: rode `egr identity add <id> --roles approver`")
+        if key is None:
+            gaps.append("cofre sem chave mestra: rode `egr key init`")
+        problem = self.keystore.permission_problem()
+        if problem:
+            gaps.append(problem)
+        if not self.settings.config.security.allow_agent_approval:
+            gaps.append("agentes não podem aprovar (padrão seguro)")
+        return gaps
+
+    def init_master_key(self, *, actor: str = "cli", force: bool = False) -> dict:
+        key = self.keystore.create(force=force)
+        self.key_repository.record(key.key_id, source=key.source, actor=actor, rotated=False)
+        self.audit.record(
+            EventType.KEY_INITIALIZED,
+            actor=actor,
+            payload={"key_id": key.key_id, "source": key.source},
+        )
+        return self.keystore.status()
+
+    def rotate_master_key(self, *, actor: str = "cli", force: bool = False) -> dict:
+        """Gera nova chave mestra e recifra todo o cofre. Nada fica em claro."""
+
+        previous, current = self.keystore.rotate(force=force)
+        reencrypted = self.vault.reencrypt_all(previous, current)
+        self.key_repository.record(current.key_id, source=current.source, actor=actor, rotated=True)
+        self.audit.record(
+            EventType.KEY_ROTATED,
+            actor=actor,
+            payload={
+                "key_id": current.key_id,
+                "previous_key_id": previous.key_id if previous else None,
+                "secrets_reencrypted": reencrypted,
+            },
+        )
+        return {
+            "key_id": current.key_id,
+            "previous_key_id": previous.key_id if previous else None,
+            "secrets_reencrypted": reencrypted,
+            "status": self.keystore.status(),
+        }
+
     # ---- status -------------------------------------------------------
     def status(self) -> dict[str, Any]:
         return {
@@ -535,6 +718,7 @@ class Runtime:
                 "events": self.audit.count(),
             },
             "sandbox": self.sandbox_info,
+            "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
                 "servers": len(self.settings.config.mcp.servers),
@@ -603,6 +787,27 @@ class Runtime:
                     "detail": failure["error"][:120],
                 }
             )
+        security = self.security_status()
+        add(
+            "security:chave",
+            security["vault"]["master_key"]["present"],
+            f"chave mestra: {security['vault']['master_key']['key_id'] or 'ausente'} "
+            f"({security['vault']['master_key']['source'] or '-'})",
+        )
+        if not self.settings.config.security.identity_required:
+            checks.append(
+                {
+                    "check": "security:identidade",
+                    "ok": False,
+                    "detail": (
+                        "aprovações podem ser decididas sem principal verificado "
+                        "(ative security.identity_required e cadastre identidades: `egr identity add`)"
+                    ),
+                }
+            )
+        problem = self.keystore.permission_problem()
+        if problem:
+            checks.append({"check": "security:chave_permissoes", "ok": False, "detail": problem})
         for name, report in self.gateway.health().items():
             add(f"model:{name}", report["healthy"], report["detail"])
         budget = self.settings.config.models.budget

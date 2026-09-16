@@ -330,3 +330,32 @@ def test_tool_cost_is_accumulated_in_the_task(runtime):
     assert task.result.tool_cost == 1.25
     assert task.result.steps[0].cost == 1.25
     assert task.result.total_cost >= 1.25
+
+
+def test_mcp_server_script_is_resolved_from_the_workspace_not_the_cwd(fake_mcp_server, monkeypatch):
+    """Um caminho relativo precisa ser resolvido na raiz do workspace.
+
+    `egr serve` pode ser chamado de qualquer diretório; sem isso, `./servers/x.py`
+    quebra com 'can't open file' e a falha aparece só como 'closed the connection'.
+    """
+
+    monkeypatch.chdir(fake_mcp_server.parent.parent)  # cwd != raiz do workspace
+    config = MCPConfig(
+        servers=[MCPServerConfig(name="relativo", command=sys.executable, args=["./fake_mcp_server.py"])]
+    )
+
+    proxies, failures = connect_mcp_servers(config, workspace=fake_mcp_server.parent)
+
+    assert failures == []
+    assert [proxy.spec.name for proxy in proxies] == ["mcp.relativo.somar"]
+    for proxy in proxies:
+        proxy.client.stop()
+
+
+def test_mcp_failure_reports_actionable_context(tmp_path):
+    config = MCPConfig(servers=[MCPServerConfig(name="quebrado", command=sys.executable, args=["./nao-existe.py"])])
+
+    _proxies, failures = connect_mcp_servers(config, workspace=tmp_path)
+
+    assert failures and failures[0]["server"] == "quebrado"
+    assert "closed the connection" in failures[0]["error"]

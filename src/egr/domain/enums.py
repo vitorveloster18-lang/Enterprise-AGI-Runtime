@@ -71,6 +71,20 @@ class EventType(BaseStrEnum):
     DATA_CLASSIFIED = "data.classified"
     DATA_SANITIZED = "data.sanitized"
     DATA_BLOCKED = "data.blocked"
+    # security: identity, keys and secrets (Fase 4)
+    IDENTITY_CREATED = "identity.created"
+    IDENTITY_UPDATED = "identity.updated"
+    IDENTITY_DISABLED = "identity.disabled"
+    TOKEN_ISSUED = "identity.token_issued"
+    TOKEN_REVOKED = "identity.token_revoked"
+    AUTH_SUCCEEDED = "security.auth_succeeded"
+    AUTH_FAILED = "security.auth_failed"
+    AUTHORIZATION_DENIED = "security.authorization_denied"
+    SECRET_STORED = "secret.stored"
+    SECRET_ROTATED = "secret.rotated"
+    SECRET_REMOVED = "secret.removed"
+    KEY_INITIALIZED = "key.initialized"
+    KEY_ROTATED = "key.rotated"
     # system
     SYSTEM_EVENT = "system.event"
 

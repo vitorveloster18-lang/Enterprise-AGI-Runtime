@@ -19,7 +19,7 @@ class OpenAICompatProvider(ModelProvider):
         return (self.config.base_url or "https://api.openai.com/v1").rstrip("/")
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
-        api_key = self.config.api_key()
+        api_key = self.api_key()
         if not api_key:
             raise ProviderUnavailable(
                 f"provider '{self.name}' has no API key: set ${self.config.api_key_env or 'OPENAI_API_KEY'}"
@@ -58,12 +58,12 @@ class OpenAICompatProvider(ModelProvider):
         )
 
     def health(self) -> tuple[bool, str]:
-        if not self.config.api_key():
+        if not self.api_key():
             return False, f"missing ${self.config.api_key_env or 'OPENAI_API_KEY'}"
         try:
             response = httpx.get(
                 f"{self.base_url}/models",
-                headers={"Authorization": f"Bearer {self.config.api_key()}"},
+                headers={"Authorization": f"Bearer {self.api_key()}"},
                 timeout=5.0,
             )
             return (True, f"HTTP {response.status_code}") if response.status_code == 200 else (

@@ -61,3 +61,19 @@ class SandboxViolation(ToolError):
 
 class ConditionError(EGRError):
     """A policy condition could not be evaluated (treated as deny)."""
+
+
+class AuthenticationError(EGRError):
+    """A credential is missing, unknown, expired or revoked."""
+
+
+class AuthorizationError(EGRError):
+    """A verified identity is not allowed to perform this action."""
+
+
+class VaultError(EGRError):
+    """The secret vault refused an operation (bad envelope, bad key, tampering)."""
+
+
+class KeyStoreError(VaultError):
+    """The master key is missing, unreadable or unusable."""

@@ -77,7 +77,7 @@ def iter_template_files():
             name = f"{prefix}{resource.name}"
             if resource.is_dir():
                 stack.append((resource, f"{name}/"))
-            elif name.endswith((".yaml", ".yml", ".md")):
+            elif name.endswith((".yaml", ".yml", ".md")) or name == ".gitignore":
                 yield name, resource
 
 

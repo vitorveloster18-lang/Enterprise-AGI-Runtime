@@ -159,6 +159,14 @@ class SecurityConfig(BaseModel):
     sanitize_external_payloads: bool = True
     allowed_write_roots: list[str] = Field(default_factory=lambda: ["artifacts", ".egr/sandbox"])
 
+    # Fase 4 — identidade verificável, RBAC, cofre e chaves
+    #: quando True, decisões críticas exigem um Principal autenticado
+    identity_required: bool = False
+    #: papel mínimo exigido de quem decide uma aprovação sem regra explícita
+    approval_min_role: str = "approver"
+    #: agentes nunca aprovam o próprio trabalho (spec: humano aprova o crítico)
+    allow_agent_approval: bool = False
+
 
 class RuntimeConfig(BaseModel):
     max_steps: int = 8

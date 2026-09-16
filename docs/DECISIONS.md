@@ -268,3 +268,59 @@ e-mail, SMS, consultas a terceiros).
 
 **Consequências:** o cálculo ANTES x DEPOIS fica honesto — e o orçamento (ADR-014) pode,
 no futuro, cobrir ferramentas pagas com o mesmo mecanismo.
+
+---
+
+## ADR-018 · Cofre cifrado com a stdlib, envelope versionado
+
+**Status:** aceita (Fase 4).
+
+**Contexto:** o núcleo V1 do EGR é 100% Python e a stdlib não expõe AES. Segredo
+de produção não pode ficar em `egr.yaml`, em variável solta ou em coluna de banco
+em claro.
+
+**Decisão:** envelope `EGR1.<nonce>.<cifra>.<tag>` com encrypt-then-MAC sobre
+keystream de HMAC-SHA256, chaves derivadas por `scrypt` com salt por segredo e
+verificação em tempo constante (`hmac.compare_digest`). Falha é sempre fechada
+(`VaultError`). O formato é versionado desde o primeiro dia.
+
+**Consequências:** nenhuma dependência externa e nenhum segredo em claro em
+repouso. O custo é não usar AES em hardware e ser uma construção própria: por
+isso o prefixo de versão existe — um backend `cryptography` (AES-GCM) pode ser
+introduzido depois e a rotação (`egr key rotate`) migra o acervo sem quebrar
+leitura.
+
+---
+
+## ADR-019 · Aprovação exige identidade verificada, não um nome
+
+**Status:** aceita (Fase 4).
+
+**Contexto:** "humano no loop" é inútil se `--by qualquer-coisa` basta. A
+auditoria precisa responder *quem* decidiu e *com qual autoridade*.
+
+**Decisão:** decisões passam por `Runtime._authorize_decision`, que exige
+principal autenticado + permissão `approval.decide` + papel que satisfaça o
+`required_role` da política, e veta agentes. Sem `identity_required`, a decisão
+acontece mas é registrada com `identity_verified: false`.
+
+**Consequências:** a garantia é auditável em vez de declarada. O padrão segue
+permissivo em desenvolvimento, e o Runtime lista isso como lacuna em
+`egr security status` e no `egr doctor` — ninguém confunde "funciona" com
+"governado".
+
+---
+
+## ADR-020 · RBAC explícito, aditivo e sem herança escondida
+
+**Status:** aceita (Fase 4).
+
+**Contexto:** matrizes de permissão com hierarquia implícita viram pesadelo de
+auditoria ("por que este papel pode aprovar?").
+
+**Decisão:** papéis são declarados em `ROLE_PERMISSIONS` com herança explícita em
+`ROLE_INHERITS`; `admin` satisfaz qualquer exigência. Permissões são checadas no
+ponto de decisão (`security/rbac.py:require`), nunca na interface.
+
+**Consequências:** a matriz cabe em uma tela (`egr security roles`) e a resposta
+para "quem pode aprovar?" é uma consulta, não uma investigação.

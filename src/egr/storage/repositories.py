@@ -17,6 +17,8 @@ from ..domain.enterprise import Enterprise
 from ..domain.memory import MemoryRecord
 from ..domain.policy import Policy
 from ..domain.task import Task
+from ..security.identity import IdentityToken, Principal
+from ..security.vault import SecretRecord
 from .database import Database
 
 
@@ -441,3 +443,159 @@ class SettingsRepository:
             return json.loads(row["value"])
         except json.JSONDecodeError:
             return row["value"]
+
+
+class IdentityRepository:
+    """Principais + tokens. Tokens guardam apenas o hash do segredo."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    # ---- principals ---------------------------------------------------
+    def save_principal(self, principal: Principal) -> Principal:
+        principal.updated_at = utcnow()
+        self.db.execute(
+            "INSERT INTO principals (id, kind, status, data, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, "
+            "status = excluded.status, data = excluded.data, updated_at = excluded.updated_at",
+            (
+                principal.id,
+                str(principal.kind),
+                str(principal.status),
+                _dump(principal),
+                iso(principal.created_at),
+                iso(principal.updated_at),
+            ),
+        )
+        self.db.commit()
+        return principal
+
+    def get_principal(self, principal_id: str) -> Principal | None:
+        row = self.db.query_one("SELECT * FROM principals WHERE id = ?", (principal_id,))
+        return _load(row, Principal) if row else None
+
+    def list_principals(self, kind: str | None = None, status: str | None = None) -> list[Principal]:
+        clauses, params = [], []
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM principals {where} ORDER BY created_at DESC",
+            tuple(params),
+        )
+        return [_load(row, Principal) for row in rows]
+
+    def count_principals(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM principals") or 0)
+
+    def delete_principal(self, principal_id: str) -> bool:
+        self.db.execute("DELETE FROM identity_tokens WHERE principal_id = ?", (principal_id,))
+        cursor = self.db.execute("DELETE FROM principals WHERE id = ?", (principal_id,))
+        self.db.commit()
+        return bool(cursor.rowcount)
+
+    # ---- tokens -------------------------------------------------------
+    def save_token(self, token: IdentityToken) -> IdentityToken:
+        self.db.execute(
+            "INSERT INTO identity_tokens (id, principal_id, status, data, created_at, expires_at, "
+            "revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+            "status = excluded.status, data = excluded.data, revoked_at = excluded.revoked_at, "
+            "last_used_at = excluded.last_used_at",
+            (
+                token.id,
+                token.principal_id,
+                token.status,
+                _dump(token),
+                iso(token.created_at),
+                iso(token.expires_at) if token.expires_at else None,
+                iso(token.revoked_at) if token.revoked_at else None,
+                iso(token.last_used_at) if token.last_used_at else None,
+            ),
+        )
+        self.db.commit()
+        return token
+
+    def get_token(self, token_id: str) -> IdentityToken | None:
+        row = self.db.query_one("SELECT * FROM identity_tokens WHERE id = ?", (token_id,))
+        return _load(row, IdentityToken) if row else None
+
+    def list_tokens(self, principal_id: str | None = None) -> list[IdentityToken]:
+        if principal_id:
+            rows = self.db.query(
+                "SELECT * FROM identity_tokens WHERE principal_id = ? ORDER BY created_at DESC",
+                (principal_id,),
+            )
+        else:
+            rows = self.db.query("SELECT * FROM identity_tokens ORDER BY created_at DESC")
+        return [_load(row, IdentityToken) for row in rows]
+
+    def count_tokens(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM identity_tokens WHERE status = 'active'") or 0)
+
+
+class SecretRepository:
+    """Envelopes cifrados. Nenhum método devolve o valor em claro."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, record: SecretRecord) -> SecretRecord:
+        self.db.execute(
+            "INSERT INTO secrets (id, name, provider, key_id, data, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, "
+            "key_id = excluded.key_id, data = excluded.data, updated_at = excluded.updated_at",
+            (
+                record.id,
+                record.name,
+                record.provider,
+                record.key_id,
+                _dump(record),
+                iso(record.created_at),
+                iso(record.updated_at),
+            ),
+        )
+        self.db.commit()
+        return record
+
+    def get(self, name: str) -> SecretRecord | None:
+        row = self.db.query_one("SELECT * FROM secrets WHERE name = ?", (name,))
+        return _load(row, SecretRecord) if row else None
+
+    def list_records(self) -> list[SecretRecord]:
+        rows = self.db.query("SELECT * FROM secrets ORDER BY name")
+        return [_load(row, SecretRecord) for row in rows]
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM secrets") or 0)
+
+    def delete(self, name: str) -> bool:
+        cursor = self.db.execute("DELETE FROM secrets WHERE name = ?", (name,))
+        self.db.commit()
+        return bool(cursor.rowcount)
+
+
+class KeyRepository:
+    """Histórico de chaves mestras (só metadados — nunca o material da chave)."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def record(self, key_id: str, source: str, actor: str = "cli", rotated: bool = False) -> None:
+        now = iso()
+        self.db.execute(
+            "INSERT INTO master_keys (key_id, source, actor, created_at, rotated_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(key_id) DO UPDATE SET rotated_at = excluded.rotated_at",
+            (key_id, source, actor, now, now if rotated else None),
+        )
+        self.db.commit()
+
+    def list(self) -> list[dict]:
+        rows = self.db.query("SELECT * FROM master_keys ORDER BY created_at DESC")
+        return [dict(row) for row in rows]
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM master_keys") or 0)

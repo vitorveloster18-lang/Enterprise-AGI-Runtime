@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -67,9 +68,14 @@ class ModelProvider(ABC):
 
     type = "base"
 
-    def __init__(self, config: ProviderConfig, timeout: int = 120):
+    def __init__(self, config: ProviderConfig, timeout: int = 120, api_key: str | None = None):
         self.config = config
         self.timeout = timeout
+        #: chave resolvida fora do config (ex.: cofre cifrado) — nunca volta para o YAML
+        self.api_key_override = api_key
+
+    def api_key(self) -> str | None:
+        return self.api_key_override or self.config.api_key()
 
     # ---- identity ----------------------------------------------------
     @property
@@ -463,8 +469,16 @@ class ModelGateway:
         return report
 
 
-def build_providers(configs: list[ProviderConfig], timeout: int = 120) -> list[ModelProvider]:
-    """Factory: build provider instances from configuration (imports are lazy)."""
+def build_providers(
+    configs: list[ProviderConfig],
+    timeout: int = 120,
+    secret_resolver: Callable[[str | None], str | None] | None = None,
+) -> list[ModelProvider]:
+    """Factory: build provider instances from configuration (imports are lazy).
+
+    `secret_resolver` permite que a chave venha do cofre cifrado (`vault:NOME`)
+    sem que o segredo passe por `egr.yaml` ou pelo config em memória no disco.
+    """
 
     from .providers.echo import EchoProvider
     from .providers.ollama import OllamaProvider
@@ -480,7 +494,8 @@ def build_providers(configs: list[ProviderConfig], timeout: int = 120) -> list[M
         provider_class = registry.get(config.type)
         if provider_class is None:
             continue
-        providers.append(provider_class(config, timeout=timeout))
+        api_key = secret_resolver(config.api_key_env) if secret_resolver else None
+        providers.append(provider_class(config, timeout=timeout, api_key=api_key))
     if not providers:
         providers.append(EchoProvider(ProviderConfig(name="echo", type="echo"), timeout=timeout))
     return providers

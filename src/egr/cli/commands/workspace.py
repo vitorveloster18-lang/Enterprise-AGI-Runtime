@@ -77,6 +77,18 @@ CONFIG_HEADER = """# EGR — Enterprise AGI Runtime
 #       command: python
 #       args: [./servers/calculadora.py]
 #
+# Segurança (Fase 4): identidade, RBAC e cofre de segredos
+#
+# security:
+#   identity_required: false     # true = decisões exigem principal autenticado
+#   approval_min_role: approver  # papel mínimo de quem aprova
+#   allow_agent_approval: false  # agente nunca aprova o próprio trabalho
+#
+# egr key init                                    # cria a chave mestra (0600)
+# printf 'sk-...' | egr secret set openai --stdin # credencial cifrada no cofre
+# egr identity add vitor --roles approver
+# egr identity token vitor --ttl-days 30
+#
 """
 
 

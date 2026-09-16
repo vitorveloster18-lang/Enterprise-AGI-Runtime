@@ -2,7 +2,8 @@
 # End-to-end demo of the Enterprise AGI Runtime (Fase 0 + Fase 1).
 #
 #   init -> status -> doctor -> task (dev) -> task (production, approval)
-#   -> approval approve -> audit verify -> memory search
+#   -> approval approve -> tools/MCP -> segurança (identidade, RBAC, cofre)
+#   -> audit verify -> memory search
 #
 # Uso: bash scripts/demo.sh [diretório do workspace]
 set -euo pipefail
@@ -20,26 +21,26 @@ fi
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 
-step "1/9 · init"
+step "1/10 · init"
 "$EGR_BIN" init "$WORKSPACE" --enterprise acme --name "ACME Contabilidade" --force
 
 cd "$WORKSPACE"
 
-step "2/9 · status"
+step "2/10 · status"
 "$EGR_BIN" status
 
-step "3/9 · doctor"
+step "3/10 · doctor"
 "$EGR_BIN" doctor || true
 
-step "4/9 · políticas e agentes declarativos"
+step "4/10 · políticas e agentes declarativos"
 "$EGR_BIN" agent sync
 "$EGR_BIN" policy sync
 "$EGR_BIN" policy test payment.create --arg amount=9000 || true
 
-step "5/9 · primeira task autônoma local (milestone)"
+step "5/10 · primeira task autônoma local (milestone)"
 "$EGR_BIN" task "Analise os documentos desta pasta e produza um relatório." --agent document-agent || true
 
-step "6/9 · task em produção pausa para aprovação humana"
+step "6/10 · task em produção pausa para aprovação humana"
 set +e
 OUTPUT="$("$EGR_BIN" task "Gerar relatório consolidado do mês" --env production 2>&1)"
 echo "$OUTPUT"
@@ -47,20 +48,37 @@ set -e
 APPROVAL="$(echo "$OUTPUT" | grep -oE 'apr_[A-Za-z0-9_]+' | head -1 || true)"
 
 if [ -n "$APPROVAL" ]; then
-  step "7/9 · aprovação humana ($APPROVAL)"
+  step "7/10 · aprovação humana ($APPROVAL)"
   "$EGR_BIN" approval approve "$APPROVAL" --by "demo" --note "aprovado no demo"
 else
-  step "7/9 · nenhuma aprovação pendente"
+  step "7/10 · nenhuma aprovação pendente"
 fi
 
-step "8/9 · Fase 3 — Tool Runtime (sandbox, git, MCP)"
+step "8/10 · Fase 3 — Tool Runtime (sandbox, git, MCP)"
 "$EGR_BIN" tool list
 "$EGR_BIN" policy test git.commit || true
 "$EGR_BIN" tool test git.status --execute || true
 "$EGR_BIN" mcp list || true
 "$EGR_BIN" mcp call mcp.calculadora.somar --arg a=40 --arg b=2 --execute || true
 
-step "9/9 · auditoria e memória"
+step "9/10 · Fase 4 — Segurança (identidade, RBAC, cofre, chaves)"
+"$EGR_BIN" key init || true
+printf 'sk-demo-nao-use' | "$EGR_BIN" secret set demo-openai --provider openai --stdin || true
+"$EGR_BIN" secret list || true
+"$EGR_BIN" identity add vitor --name "Vitor" --roles approver || true
+"$EGR_BIN" identity add ci-bot --kind service --roles operator || true
+"$EGR_BIN" identity list || true
+# o token aparece uma única vez: capturamos para demonstrar a decisão verificada
+TOKEN="$("$EGR_BIN" identity token vitor --ttl-days 7 --label demo 2>&1 | grep '^token:' | cut -d' ' -f2- || true)"
+"$EGR_BIN" identity whoami --by "$TOKEN" || true
+"$EGR_BIN" security status || true
+# sem identidade exigida, a decisão acontece mas fica marcada como não verificada
+DEMO_APPROVAL="$("$EGR_BIN" tool test email.send --arg to=financeiro@acme.com --arg subject=demo --arg body=oi --execute 2>&1 | grep -oE 'apr_[A-Za-z0-9_]+' | head -1 || true)"
+if [ -n "$DEMO_APPROVAL" ]; then
+  "$EGR_BIN" approval approve "$DEMO_APPROVAL" --by vitor --token "$TOKEN" --note "identidade verificada" || true
+fi
+
+step "10/10 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

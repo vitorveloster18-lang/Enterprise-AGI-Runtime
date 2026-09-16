@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from ...core.errors import AuthenticationError, AuthorizationError
 from ..context import get_runtime
 from ..formatting import error, info, json_output, kv, success, table, warning
 
@@ -86,7 +87,8 @@ def show(
 @app.command(name="approve")
 def approve(
     approval_id: str = typer.Argument(...),
-    by: str = typer.Option("human", "--by", help="Quem está aprovando"),
+    by: str = typer.Option("human", "--by", help="Quem está aprovando (id do principal)"),
+    token: str = typer.Option(None, "--token", help="Token de identidade: egr_<id>.<segredo>"),
     note: str = typer.Option("", "--note"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
 ):
@@ -94,10 +96,14 @@ def approve(
 
     runtime = get_runtime(workspace)
     try:
-        task = runtime.approve(approval_id, decided_by=by, note=note or None)
+        task = runtime.approve(approval_id, decided_by=by, note=note or None, token=token)
     except KeyError as exc:
         error(f"aprovação {approval_id} não encontrada")
         raise typer.Exit(code=1) from exc
+    except (AuthenticationError, AuthorizationError) as exc:
+        error(f"decisão recusada: {exc}")
+        info("emitir credencial: egr identity token <principal> --roles approver")
+        raise typer.Exit(code=3) from exc
     success(f"aprovação {approval_id} registrada")
     if task is not None:
         info(f"task {task.id} → {task.status}")
@@ -106,7 +112,8 @@ def approve(
 @app.command(name="deny")
 def deny(
     approval_id: str = typer.Argument(...),
-    by: str = typer.Option("human", "--by"),
+    by: str = typer.Option("human", "--by", help="Quem está decidindo (id do principal)"),
+    token: str = typer.Option(None, "--token", help="Token de identidade: egr_<id>.<segredo>"),
     note: str = typer.Option("", "--note"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
 ):
@@ -114,10 +121,13 @@ def deny(
 
     runtime = get_runtime(workspace)
     try:
-        task = runtime.deny(approval_id, decided_by=by, note=note or None)
+        task = runtime.deny(approval_id, decided_by=by, note=note or None, token=token)
     except KeyError as exc:
         error(f"aprovação {approval_id} não encontrada")
         raise typer.Exit(code=1) from exc
+    except (AuthenticationError, AuthorizationError) as exc:
+        error(f"decisão recusada: {exc}")
+        raise typer.Exit(code=3) from exc
     success(f"aprovação {approval_id} negada")
     if task is not None:
         info(f"task {task.id} → {task.status}")

@@ -30,6 +30,16 @@ def error(message: str) -> None:
     error_console.print(f"[red]✗[/red] {message}")
 
 
+def secret_line(label: str, value: str) -> None:
+    """Imprime um valor sensível sem quebra de linha, corte ou highlight.
+
+    Tokens e segredos longos não podem ser truncados pelo rich: um token
+    cortado é um token inútil.
+    """
+
+    console.print(f"[cyan]{label}[/cyan] {value}", soft_wrap=True, highlight=False)
+
+
 def table(title: str, columns: list[str], rows: list[list[Any]], caption: str | None = None) -> None:
     rendered = Table(title=title, caption=caption, header_style="bold cyan")
     for column in columns:
