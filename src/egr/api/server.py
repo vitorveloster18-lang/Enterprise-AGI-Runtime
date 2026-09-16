@@ -12,8 +12,10 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from ..core.errors import AuthenticationError, AuthorizationError
+from ..core.errors import AuthenticationError, AuthorizationError, ConfigError
 from ..runtime.runtime import Runtime
+from ..security.rbac import TASK_SUBMIT
+from ..security.rbac import require as require_permission
 from ..version import PHASE, __version__
 
 TAGS = [
@@ -21,6 +23,7 @@ TAGS = [
     {"name": "tasks", "description": "Submissão e inspeção de trabalho"},
     {"name": "governance", "description": "Políticas, aprovações e auditoria"},
     {"name": "security", "description": "Identidade, RBAC, cofre e chaves"},
+    {"name": "orchestration", "description": "Workflows, execuções, agenda e webhooks"},
 ]
 
 
@@ -28,6 +31,12 @@ class TaskCreate(BaseModel):
     objective: str
     agent_id: str | None = None
     environment: str | None = None
+
+
+class WorkflowRunRequest(BaseModel):
+    inputs: dict = {}
+    environment: str | None = None
+    created_by: str = "api"
 
 
 class MemoryWrite(BaseModel):
@@ -146,6 +155,103 @@ def create_app(runtime: Runtime) -> FastAPI:
             "decision": payload.decision,
             "task": task.model_dump(mode="json") if task else None,
         }
+
+    # ------------------------------------------------------------------
+    @app.get("/v1/workflows", tags=["orchestration"])
+    def workflows() -> list[dict[str, Any]]:
+        runtime._load_workflows()
+        return [
+            {
+                "id": workflow.id,
+                "name": workflow.name,
+                "version": workflow.version,
+                "environment": str(workflow.environment),
+                "trigger": workflow.trigger.type,
+                "event": workflow.trigger.event,
+                "cron": workflow.trigger.cron,
+                "steps": len(workflow.steps),
+                "parallel": workflow.parallel,
+                "problems": runtime.orchestrator.validate(workflow),
+            }
+            for workflow in runtime.workflows.values()
+        ]
+
+    @app.post("/v1/workflows/{workflow_id}/run", tags=["orchestration"])
+    def run_workflow(workflow_id: str, payload: WorkflowRunRequest | None = None) -> dict[str, Any]:
+        payload = payload or WorkflowRunRequest()
+        try:
+            run = runtime.run_workflow(
+                workflow_id,
+                inputs=payload.inputs,
+                environment=payload.environment,
+                created_by=payload.created_by,
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return run.model_dump(mode="json")
+
+    @app.get("/v1/workflow-runs", tags=["orchestration"])
+    def workflow_runs(
+        workflow_id: str | None = None, status: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return [run.model_dump(mode="json") for run in runtime.runs.list(
+            workflow_id=workflow_id, status=status, limit=limit
+        )]
+
+    @app.get("/v1/workflow-runs/{run_id}", tags=["orchestration"])
+    def workflow_run(run_id: str) -> dict[str, Any]:
+        run = runtime.runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        return run.model_dump(mode="json")
+
+    @app.post("/v1/workflow-runs/{run_id}/resume", tags=["orchestration"])
+    def resume_workflow(run_id: str) -> dict[str, Any]:
+        try:
+            return runtime.orchestrator.resume(run_id).model_dump(mode="json")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/v1/webhooks/{workflow_id}", tags=["orchestration"])
+    def webhook(
+        workflow_id: str,
+        payload: WorkflowRunRequest | None = None,
+        authorization: str | None = Header(None, description="Bearer egr_<id>.<segredo>"),
+    ) -> dict[str, Any]:
+        """Dispara um workflow por webhook.
+
+        Com `security.identity_required`, exige um principal com `task.submit`
+        (mesma regra de qualquer ação no Runtime — webhook não é exceção).
+        """
+
+        payload = payload or WorkflowRunRequest()
+        if runtime.settings.config.security.identity_required:
+            principal = runtime.identity.resolve(bearer_token(authorization))
+            if principal is None:
+                raise HTTPException(status_code=401, detail="webhook exige credencial verificável")
+            try:
+                require_permission(principal, TASK_SUBMIT)
+            except AuthorizationError as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            payload.created_by = principal.id
+        try:
+            run = runtime.run_workflow(
+                workflow_id,
+                inputs=payload.inputs,
+                environment=payload.environment,
+                created_by=payload.created_by,
+                trigger="webhook",
+                trigger_detail=f"webhook:{workflow_id}",
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return run.model_dump(mode="json")
+
+    @app.get("/v1/schedule", tags=["orchestration"])
+    def schedule(limit: int = 5) -> dict[str, Any]:
+        """Agenda: o que está vencido agora e os próximos disparos."""
+
+        return {"due": runtime.scheduler.due(), "upcoming": runtime.scheduler.upcoming(limit=limit)}
 
     # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])

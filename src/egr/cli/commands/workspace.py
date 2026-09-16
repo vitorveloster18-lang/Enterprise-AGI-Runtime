@@ -77,6 +77,15 @@ CONFIG_HEADER = """# EGR — Enterprise AGI Runtime
 #       command: python
 #       args: [./servers/calculadora.py]
 #
+# Orquestração (Fase 6): cada passo do workflow é uma task auditada
+#
+#   egr workflow run <id>          # DAG, retry, condição e compensação
+#   egr workflow schedule          # cron: o que está vencido
+#   egr workflow tick              # idempotente: chame pelo cron do SO
+#
+# workflows/*.yaml aceita por passo: depends_on, condition, max_attempts,
+# on_error (fail|continue|compensate), compensate_with, outputs e namespace.
+#
 # Memória (Fase 5): recuperação híbrida e ciclo de vida
 #
 # memory:

@@ -96,6 +96,28 @@ class MemoryKind(BaseStrEnum):
     SEMANTIC = "semantic"
 
 
+class RunStatus(BaseStrEnum):
+    """Estado de uma execução de workflow (Fase 6)."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    WAITING = "waiting"    # pausada: aprovação humana pendente
+    COMPLETED = "completed"
+    PARTIAL = "partial"    # terminou, mas com passos tolerados como falhos
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class StepRunStatus(BaseStrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    WAITING = "waiting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+
 class ApprovalStatus(BaseStrEnum):
     PENDING = "pending"
     APPROVED = "approved"

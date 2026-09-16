@@ -379,3 +379,53 @@ remove, e só depois da retenção vencer. `consolidate` sem `--apply` é relat�
 **Consequências:** o acervo se mantém útil sem perda silenciosa de história — e
 toda remoção passa pela auditoria. O custo é uma varredura O(n²) na
 consolidação, limitada por `max_consolidate_scan`.
+
+---
+
+## ADR-024 · Execução de workflow é objeto auditado, não um laço invisível
+
+**Status:** aceita (Fase 6).
+
+**Contexto:** um `for` sobre passos não deixa rastro: não dá para responder
+"quem disparou", "por que parou", "o que o passo 2 recebeu do passo 1".
+
+**Decisão:** `WorkflowRun` é persistido (`workflow_runs`) com status, trigger,
+inputs, contexto por passo, tentativas, custo e erro. Cada passo cria uma `Task`
+com `workflow_run_id` e `step_id`.
+
+**Consequências:** retomada, cancelamento em cascata e auditoria passam a ser
+consultas, não arqueologia. O custo do run é a soma dos custos das tasks.
+
+---
+
+## ADR-025 · Scheduler explícito: `tick` idempotente, não daemon mágico
+
+**Status:** aceita (Fase 6).
+
+**Contexto:** daemons próprios de scheduler são a parte menos supervisionada de
+qualquer sistema — e a que mais surpreende em produção.
+
+**Decisão:** o motor expõe `due()`/`tick()` idempotentes (um minuto = no máximo
+um disparo por workflow). Quem decide a periodicidade é o ambiente: cron do SO,
+systemd timer, k8s CronJob. `egr workflow daemon` existe só para desenvolvimento.
+
+**Consequências:** reiniciar ou sobrepor execuções não duplica trabalho, e o
+operador continua no controle de quando o Runtime acorda.
+
+---
+
+## ADR-026 · Dependência não concluída propaga `skipped`, nunca executa no escuro
+
+**Status:** aceita (Fase 6).
+
+**Contexto:** com `on_error: continue`, o que acontece com os passos a jusante?
+Executá-los é inventar dado; falhá-los é mentir sobre a causa.
+
+**Decisão:** antes de rodar cada nível, o motor marca `skipped` todo passo cuja
+dependência não esteja `completed` — com o motivo registrado. Falha sem
+tolerância **aborta** o run e a jusante fica `pending` (nunca avaliada). Run que
+termina com falhas toleradas é `partial`, não `completed`.
+
+**Consequências:** o relatório do run distingue "não rodou porque não devia" de
+"não rodou porque o run morreu" — distinção essencial quando alguém pergunta
+por que um processo não produziu resultado.

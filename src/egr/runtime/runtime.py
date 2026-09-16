@@ -50,13 +50,16 @@ from ..storage.repositories import (
     SecretRepository,
     SettingsRepository,
     TaskRepository,
+    WorkflowRunRepository,
 )
 from ..tools import ToolRegistry, register_builtin_tools
 from ..tools.protocol import ToolContext
 from .agent_engine import AgentEngine
 from .events import EventBus
 from .loader import load_agent_dir, load_workflow_dir
+from .scheduler import WorkflowScheduler
 from .task_engine import TaskEngine
+from .workflow_engine import WorkflowEngine
 
 LOGGER = get_logger("egr.runtime")
 
@@ -142,6 +145,9 @@ class Runtime:
         self.identity = IdentityService(IdentityRepository(self.db), audit=self.audit)
         self.vault = SecretVault(SecretRepository(self.db), self.keystore, audit=self.audit)
 
+        # ---- orquestração (Fase 6) ----------------------------------
+        self.runs = WorkflowRunRepository(self.db)
+
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
         self.policy.set_policies([*default_policies(), *self.policy_repository.list(enabled_only=False)])
@@ -167,11 +173,14 @@ class Runtime:
         self.agents: dict[str, AgentSpec] = {}
         self.agent_engine = AgentEngine(self)
         self.task_engine = TaskEngine(self)
+        self.orchestrator = WorkflowEngine(self)
+        self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
         self._ensure_enterprise()
         self._load_agents()
         self._load_workflows()
+        self._triggers_bound = False
 
     # ---- construction -----------------------------------------------
     @classmethod
@@ -622,6 +631,63 @@ class Runtime:
         return self.task_engine.submit(objective, agent_id=agent_id, environment=environment, created_by=created_by)
 
     # ---- segurança: chaves, cofre e identidade ------------------------
+    # ---- orquestração (Fase 6) ---------------------------------------
+    def run_workflow(
+        self,
+        workflow_id: str,
+        *,
+        inputs: dict | None = None,
+        environment: str | None = None,
+        created_by: str = "cli",
+        trigger: str = "manual",
+        trigger_detail: str = "",
+    ):
+        return self.orchestrator.start(
+            workflow_id,
+            inputs=inputs,
+            environment=environment,
+            created_by=created_by,
+            trigger=trigger,
+            trigger_detail=trigger_detail,
+        )
+
+    def bind_triggers(self) -> int:
+        """Liga eventos do ledger a workflows (idempotente)."""
+
+        from .triggers import bind
+
+        return bind(self)
+
+    def orchestration_status(self) -> dict[str, Any]:
+        runs = self.runs.list(limit=200)
+        return {
+            "workflows": len(self.workflows),
+            "triggers": [
+                {
+                    "workflow": workflow.id,
+                    "type": workflow.trigger.type,
+                    "event": workflow.trigger.event,
+                    "cron": workflow.trigger.cron,
+                    "enabled": workflow.trigger.enabled,
+                    "steps": len(workflow.steps),
+                    "parallel": workflow.parallel,
+                }
+                for workflow in self.workflows.values()
+            ],
+            "runs": {
+                "total": self.runs.count(),
+                "by_status": self.runs.stats(),
+                "recent": [run.id for run in runs[:5]],
+            },
+            "scheduler": {
+                "due_now": [
+                    item for item in self.scheduler.due() if "error" not in item
+                ],
+                "cron_errors": [item for item in self.scheduler.due() if "error" in item],
+                "upcoming": self.scheduler.upcoming(limit=5),
+            },
+        }
+
     def security_status(self) -> dict[str, Any]:
         """Raio-X da postura de segurança — o que está verificado e o que não está."""
 
@@ -723,6 +789,7 @@ class Runtime:
             },
             "sandbox": self.sandbox_info,
             "memory": self.memory.stats(),
+            "orchestration": self.orchestration_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -813,6 +880,19 @@ class Runtime:
         problem = self.keystore.permission_problem()
         if problem:
             checks.append({"check": "security:chave_permissoes", "ok": False, "detail": problem})
+        orchestration = self.orchestration_status()
+        add(
+            "workflows",
+            bool(self.workflows),
+            f"{orchestration['workflows']} workflow(s), "
+            f"{orchestration['runs']['total']} execuções, "
+            f"{len(orchestration['triggers'])} gatilho(s)",
+        )
+        for item in self.scheduler.due():
+            if "error" in item:
+                checks.append(
+                    {"check": f"cron:{item['workflow']}", "ok": False, "detail": item["error"]}
+                )
         memory_stats = self.memory.stats()
         add(
             "memory",

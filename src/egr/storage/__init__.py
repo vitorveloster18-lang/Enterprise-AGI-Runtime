@@ -13,6 +13,7 @@ from .repositories import (
     SecretRepository,
     SettingsRepository,
     TaskRepository,
+    WorkflowRunRepository,
 )
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "SecretRepository",
     "SettingsRepository",
     "TaskRepository",
+    "WorkflowRunRepository",
     "apply_migrations",
     "migration_status",
 ]

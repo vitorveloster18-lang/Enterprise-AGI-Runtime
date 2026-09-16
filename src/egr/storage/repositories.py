@@ -16,6 +16,7 @@ from ..domain.artifact import Artifact
 from ..domain.enterprise import Enterprise
 from ..domain.memory import MemoryRecord
 from ..domain.policy import Policy
+from ..domain.run import WorkflowRun
 from ..domain.task import Task
 from ..security.identity import IdentityToken, Principal
 from ..security.vault import SecretRecord
@@ -687,3 +688,77 @@ class KeyRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM master_keys") or 0)
+
+
+class WorkflowRunRepository:
+    """Execuções de workflow: o histórico auditável da orquestração."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, run: WorkflowRun) -> WorkflowRun:
+        run.updated_at = utcnow()
+        self.db.execute(
+            "INSERT INTO workflow_runs (id, workflow_id, status, environment, trigger, data, "
+            "created_at, updated_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data, "
+            "updated_at = excluded.updated_at, finished_at = excluded.finished_at",
+            (
+                run.id,
+                run.workflow_id,
+                str(run.status),
+                str(run.environment),
+                run.trigger,
+                _dump(run),
+                iso(run.created_at),
+                iso(run.updated_at),
+                iso(run.finished_at) if run.finished_at else None,
+            ),
+        )
+        self.db.commit()
+        return run
+
+    def get(self, run_id: str) -> WorkflowRun | None:
+        row = self.db.query_one("SELECT * FROM workflow_runs WHERE id = ?", (run_id,))
+        return _load(row, WorkflowRun) if row else None
+
+    def list(
+        self,
+        workflow_id: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+    ) -> list[WorkflowRun]:
+        clauses, params = [], []
+        if workflow_id:
+            clauses.append("workflow_id = ?")
+            params.append(workflow_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM workflow_runs {where} ORDER BY created_at DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, WorkflowRun) for row in rows]
+
+    def last_run(self, workflow_id: str, trigger: str | None = None) -> WorkflowRun | None:
+        if trigger:
+            row = self.db.query_one(
+                "SELECT * FROM workflow_runs WHERE workflow_id = ? AND trigger = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (workflow_id, trigger),
+            )
+        else:
+            row = self.db.query_one(
+                "SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY created_at DESC LIMIT 1",
+                (workflow_id,),
+            )
+        return _load(row, WorkflowRun) if row else None
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM workflow_runs GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM workflow_runs") or 0)

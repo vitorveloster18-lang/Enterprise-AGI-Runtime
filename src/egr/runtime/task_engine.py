@@ -22,6 +22,8 @@ class TaskEngine:
         created_by: str = "cli",
         parent_id: str | None = None,
         workflow_id: str | None = None,
+        workflow_run_id: str | None = None,
+        step_id: str | None = None,
     ) -> Task:
         agent = self.runtime.resolve_agent(agent_id)
         task = Task(
@@ -32,6 +34,8 @@ class TaskEngine:
             created_by=created_by,
             parent_id=parent_id,
             workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            step_id=step_id,
         )
         self.runtime.tasks.save(task)
         self.runtime.audit.record(
@@ -40,7 +44,13 @@ class TaskEngine:
             task_id=task.id,
             agent_id=agent.id,
             environment=str(task.environment),
-            payload={"objective": objective, "parent": parent_id, "workflow": workflow_id},
+            payload={
+                "objective": objective,
+                "parent": parent_id,
+                "workflow": workflow_id,
+                # marca a origem: triggers ignoram eventos internos de um run
+                "workflow_run": workflow_run_id,
+            },
         )
         return task
 

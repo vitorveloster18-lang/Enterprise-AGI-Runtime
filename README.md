@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 5 implementadas** (Foundation + Runtime Core + Model Gateway + Tool Runtime + Security/Policy + Memory System) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 6 implementadas** (escopo completo da V1: Foundation → Orchestration) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 110 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida) |
+| Testes | `tests/` | 132 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook) |
 
 ## 6. Comandos principais
 
@@ -263,6 +263,36 @@ Ciclo de vida: `importância × reforço (uso) × decaimento (meia-vida de 30
 dias)`. Memória usada fica mais forte; duplicata é arquivada, nunca apagada em
 silêncio; `--prune --apply` é o único caminho para remover de verdade.
 
+## 5.4 Orquestração (Fase 6)
+
+```bash
+egr workflow validate                      # DAG, dependências, condições, cron
+egr workflow run invoice-processing        # cada passo vira uma task auditada
+egr workflow runs | inspect <run> | resume <run> | cancel <run>
+egr workflow schedule                      # cron: vencidos + próximos
+egr workflow tick                          # idempotente (feito para o cron do SO)
+egr workflow triggers                      # eventos ligados a workflows
+```
+
+```yaml
+steps:
+  - id: s1
+    agent: document-agent
+    objective: Extrair os dados da nota fiscal
+    outputs: {fornecedor: "{{task.answer}}"}
+  - id: s2
+    depends_on: [s1]
+    max_attempts: 2                        # retry auditado
+    on_error: compensate                   # fail | continue | compensate
+    compensate_with: desfazer
+    condition: "inputs['origem'] == 'upload'"
+```
+
+Dependência não concluída propaga `skipped` (nunca executa no escuro); falha sem
+tolerância aborta o run; falha tolerada termina como `partial`; aprovação pausa
+em `waiting` e `resume` continua. Gatilhos: `event` (prefixo `invoice.*`),
+`cron` e webhook (`POST /v1/webhooks/{id}`, com identidade quando exigida).
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -324,6 +354,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE3_TOOL_RUNTIME.md`](docs/PHASE3_TOOL_RUNTIME.md) — Fase 3 (sandbox, git, e-mail, browser, MCP)
 - [`docs/PHASE4_SECURITY_POLICY.md`](docs/PHASE4_SECURITY_POLICY.md) — Fase 4 (identidade, RBAC, cofre, chaves)
 - [`docs/PHASE5_MEMORY_SYSTEM.md`](docs/PHASE5_MEMORY_SYSTEM.md) — Fase 5 (memória semântica, recuperação híbrida, ciclo de vida)
+- [`docs/PHASE6_ORCHESTRATION.md`](docs/PHASE6_ORCHESTRATION.md) — Fase 6 (DAG, retry, compensação, agenda, webhooks)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

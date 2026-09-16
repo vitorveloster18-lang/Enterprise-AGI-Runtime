@@ -55,6 +55,9 @@ class Task(BaseModel):
     parent_id: str | None = None
     created_by: str = "cli"
     workflow_id: str | None = None
+    # Fase 6: rastreabilidade completa (run -> passo -> task)
+    workflow_run_id: str | None = None
+    step_id: str | None = None
     context: dict = Field(default_factory=dict)  # plan, cursor, approvals, etc.
     result: TaskResult | None = None
     error: str | None = None
