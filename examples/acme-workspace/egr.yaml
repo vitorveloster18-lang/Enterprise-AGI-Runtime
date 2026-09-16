@@ -83,6 +83,15 @@ runtime:
   model_timeout: 120
   auto_approve_in_development: false
   pause_on_approval: true
+mcp:
+  enabled: true
+  servers:
+    - name: calculadora
+      command: python
+      args:
+        - servers/calculadora.py
+      enabled: true
+      timeout: 15
 logging:
   level: INFO
   file: true

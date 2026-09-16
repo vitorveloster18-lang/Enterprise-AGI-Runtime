@@ -1,51 +1,22 @@
-"""Sandboxed Python execution.
+"""Sandboxed Python execution — agora com dois backends (Fase 3).
 
-Runs in a subprocess with a filtered environment, inside the workspace sandbox,
-under a hard timeout. Files produced by the script are copied into `artifacts/`
-and registered as Artifacts by the runtime.
+    mode: auto      -> contêiner quando disponível, senão subprocesso
+    mode: container -> docker/podman (rede desligada, limites de recursos)
+    mode: process   -> subprocesso com ambiente filtrado (isolamento fraco)
 """
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-import uuid
-from pathlib import Path
-
 from ...domain.enums import RiskLevel
 from ...domain.tool import ToolRequest, ToolResult, ToolSpec
 from ..protocol import Tool, ToolContext
-
-SENSITIVE_ENV_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH")
-
-
-def build_environment(ctx: ToolContext) -> dict[str, str]:
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not any(marker in key.upper() for marker in SENSITIVE_ENV_MARKERS)
-    }
-    env.update(
-        {
-            "HOME": str(ctx.sandbox),
-            "PYTHONPATH": "",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "EGR_WORKSPACE": str(ctx.workspace),
-            "EGR_SANDBOX": str(ctx.sandbox),
-            "EGR_ARTIFACTS": str(ctx.artifacts),
-            "EGR_ENVIRONMENT": str(ctx.environment),
-            "EGR_TASK_ID": ctx.task_id or "",
-            "EGR_AGENT_ID": ctx.agent_id or "",
-        }
-    )
-    return env
+from ..sandbox import SandboxRunner
 
 
 class PythonExecuteTool(Tool):
     spec = ToolSpec(
         name="python.execute",
-        description="Executa um script Python isolado no sandbox do workspace",
+        description="Executa um script Python no sandbox (contêiner quando disponível)",
         parameters={
             "script": {"type": "string", "required": True},
             "timeout": {"type": "integer", "required": False},
@@ -60,69 +31,57 @@ class PythonExecuteTool(Tool):
         if ctx.dry_run:
             return ToolResult.success({"dry_run": True, "script_chars": len(request.args.get("script", ""))})
 
-        script = request.args["script"]
-        timeout = int(request.args.get("timeout", ctx.timeout or 30))
-        ctx.sandbox.mkdir(parents=True, exist_ok=True)
-        ctx.artifacts.mkdir(parents=True, exist_ok=True)
+        sandbox_config = ctx.security.get("sandbox") or {}
+        runner = SandboxRunner(
+            _sandbox_config(sandbox_config),
+            workspace=ctx.workspace,
+            sandbox_dir=ctx.sandbox,
+            artifacts_dir=ctx.artifacts,
+            environment=str(ctx.environment),
+            task_id=ctx.task_id,
+            agent_id=ctx.agent_id,
+        )
 
-        script_path = ctx.sandbox / f"_egr_script_{uuid.uuid4().hex[:8]}.py"
-        script_path.write_text(script, encoding="utf-8")
-        before = self._snapshot(ctx.sandbox)
+        timeout = int(request.args.get("timeout", sandbox_config.get("timeout", ctx.timeout or 30)))
+        result = runner.run(request.args["script"], timeout=timeout)
 
-        try:
-            completed = subprocess.run(
-                [sys.executable, str(script_path)],
-                cwd=str(ctx.sandbox),
-                env=build_environment(ctx),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-            stdout, stderr, code = completed.stdout, completed.stderr, completed.returncode
-        except subprocess.TimeoutExpired:
-            return ToolResult.failure(f"script timed out after {timeout}s")
-        finally:
-            script_path.unlink(missing_ok=True)
-
-        artifacts = self._collect_artifacts(ctx, before)
         payload = {
-            "exit_code": code,
-            "stdout": stdout[-8000:],
-            "stderr": stderr[-4000:],
-            "artifacts": artifacts,
-            "cwd": str(ctx.sandbox),
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "artifacts": result.artifacts,
+            "sandbox": {
+                "mode": result.mode,
+                "image": result.image,
+                "network": result.network,
+            },
         }
-        if code != 0:
-            return ToolResult.failure(f"script exited with code {code}: {stderr[-500:]}", output=payload)
-        return ToolResult.success(payload, artifacts=artifacts)
+        metadata = {
+            "sandbox_mode": result.mode,
+            "sandbox_image": result.image,
+            "sandbox_network": result.network,
+            **result.metadata,
+        }
 
-    # ---- helpers -----------------------------------------------------
-    @staticmethod
-    def _snapshot(sandbox: Path) -> dict[Path, float]:
-        return {path: path.stat().st_mtime for path in sandbox.rglob("*") if path.is_file()}
-
-    @staticmethod
-    def _collect_artifacts(ctx: ToolContext, before: dict[Path, float]) -> list[dict]:
-        destination_dir = ctx.artifacts / (ctx.task_id or "adhoc")
-        produced: list[dict] = []
-        for path in sorted(ctx.sandbox.rglob("*")):
-            if not path.is_file() or path.name.startswith("_egr_script_"):
-                continue
-            if path in before and path.stat().st_mtime <= before[path]:
-                continue
-            destination_dir.mkdir(parents=True, exist_ok=True)
-            destination = destination_dir / path.name
-            destination.write_bytes(path.read_bytes())
-            produced.append(
-                {
-                    "name": path.name,
-                    "path": str(destination.relative_to(ctx.workspace)),
-                    "absolute": str(destination),
-                    "bytes": destination.stat().st_size,
-                    "content_type": (
-                        "text/markdown" if destination.suffix in {".md", ".txt"} else "application/octet-stream"
-                    ),
-                }
+        if not result.ok and result.error:
+            return ToolResult.failure(result.error, output=payload, metadata=metadata)
+        if result.exit_code != 0:
+            return ToolResult.failure(
+                f"script exited with code {result.exit_code}: {result.stderr[-500:]}",
+                output=payload,
+                metadata=metadata,
             )
-        return produced
+        return ToolResult.success(payload, artifacts=result.artifacts, metadata=metadata)
+
+
+def _sandbox_config(raw: dict):
+    """Aceita tanto o dict do config quanto um SandboxConfig já construído."""
+
+    from ...core.config import SandboxConfig
+
+    if isinstance(raw, SandboxConfig):
+        return raw
+    if isinstance(raw, dict) and raw:
+        known = {key: value for key, value in raw.items() if key in SandboxConfig.model_fields}
+        return SandboxConfig(**known)
+    return SandboxConfig()

@@ -23,6 +23,7 @@ class StepRecord(BaseModel):
     output: Any = None
     error: str | None = None
     duration_ms: int = 0
+    cost: float = 0.0
 
 
 class TaskResult(BaseModel):
@@ -34,10 +35,15 @@ class TaskResult(BaseModel):
     provider: str | None = None
     duration_ms: int = 0
     error: str | None = None
-    # Fase 2: custo é cidadão de primeira classe (base da medição de ROI)
-    cost: float = 0.0
+    # Fase 2/3: custo é cidadão de primeira classe (base da medição de ROI)
+    cost: float = 0.0          # custo de modelo
+    tool_cost: float = 0.0     # custo de ferramentas (APIs pagas, e-mail, etc.)
     tokens: dict = Field(default_factory=dict)  # {"input": n, "output": n}
     model_calls: int = 0
+
+    @property
+    def total_cost(self) -> float:
+        return round(self.cost + self.tool_cost, 8)
 
 
 class Task(BaseModel):

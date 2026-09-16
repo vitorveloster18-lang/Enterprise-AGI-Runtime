@@ -5,8 +5,11 @@ Every tool is a Tool/Extension: none of them live inside the Core.
 
 from ...domain.tool import ToolSpec
 from ..registry import ToolRegistry
+from .browser_tool import BrowserExtractTool, BrowserNavigateTool
 from .database_query import DatabaseQueryTool
+from .email_tool import EmailReadTool, EmailSendTool
 from .filesystem import FilesystemListTool, FilesystemReadTool, FilesystemWriteTool
+from .git_tool import GitCommitTool, GitDiffTool, GitLogTool, GitStatusTool
 from .http_request import HttpRequestTool
 from .process_run import ProcessRunTool
 from .python_exec import PythonExecuteTool
@@ -21,6 +24,14 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         HttpRequestTool,
         ProcessRunTool,
         DatabaseQueryTool,
+        GitStatusTool,
+        GitDiffTool,
+        GitLogTool,
+        GitCommitTool,
+        EmailSendTool,
+        EmailReadTool,
+        BrowserNavigateTool,
+        BrowserExtractTool,
     ):
         registry.register(tool_class())
     return registry

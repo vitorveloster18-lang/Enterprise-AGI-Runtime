@@ -34,6 +34,9 @@ def dev(
             "max_steps": runtime.settings.config.runtime.max_steps,
             "ferramentas": len(runtime.tools.list()),
             "agentes": len(runtime.agents),
+            "modo do sandbox": f"{runtime.sandbox_info['mode']} (configurado: {runtime.sandbox_info['configured']})",
+            "imagem do sandbox": runtime.sandbox_info["image"],
+            "rede no sandbox": runtime.sandbox_info["network"],
         },
     )
     info("no Development o agente pode inspecionar, criar, testar e iterar — sempre isolado")

@@ -134,6 +134,90 @@ def baseline_policy() -> Policy:
                 decision=DecisionType.ALLOW,
                 reason="read-only queries are allowed",
             ),
+            # ---------------- git (Fase 3) ---------------------
+            PolicyRule(
+                id="git-read",
+                action="git.status",
+                decision=DecisionType.ALLOW,
+                reason="leitura do repositório é livre",
+            ),
+            PolicyRule(
+                id="git-diff",
+                action="git.diff",
+                decision=DecisionType.ALLOW,
+                reason="diff é somente leitura",
+            ),
+            PolicyRule(
+                id="git-log",
+                action="git.log",
+                decision=DecisionType.ALLOW,
+                reason="histórico é somente leitura",
+            ),
+            PolicyRule(
+                id="git-commit",
+                action="git.commit",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="commits exigem aprovação humana",
+            ),
+            # ---------------- email (Fase 3) -------------------
+            PolicyRule(
+                id="email-send-forbidden",
+                action="email.send",
+                condition="external_ai == 'forbidden'",
+                decision=DecisionType.DENY,
+                reason="política da empresa proíbe envio de dados para fora",
+            ),
+            PolicyRule(
+                id="email-send",
+                action="email.send",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="envio de e-mail sempre exige aprovação humana",
+            ),
+            PolicyRule(
+                id="email-read-production",
+                action="email.read",
+                condition=f"environment == '{PRD}'",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="leitura de caixa postal em produção exige aprovação",
+            ),
+            PolicyRule(
+                id="email-read",
+                action="email.read",
+                decision=DecisionType.ALLOW,
+                reason="leitura de e-mail permitida fora de produção",
+            ),
+            # ---------------- browser (Fase 3) -----------------
+            PolicyRule(
+                id="browser-navigate",
+                action="browser.navigate",
+                condition=f"environment == '{DEV}'",
+                decision=DecisionType.ALLOW,
+                reason="navegação permitida em desenvolvimento",
+            ),
+            PolicyRule(
+                id="browser-navigate-guarded",
+                action="browser.navigate",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="navegação fora de desenvolvimento exige aprovação",
+            ),
+            PolicyRule(
+                id="browser-extract",
+                action="browser.extract",
+                condition=f"environment == '{DEV}'",
+                decision=DecisionType.ALLOW,
+                reason="extração permitida em desenvolvimento",
+            ),
+            PolicyRule(
+                id="browser-extract-guarded",
+                action="browser.extract",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="extração fora de desenvolvimento exige aprovação",
+            ),
             # ---------------- memory ---------------------------
             PolicyRule(
                 id="memory-write",

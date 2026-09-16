@@ -276,8 +276,10 @@ class AgentEngine:
                 output=self._preview(result.output, limit=1500),
                 error=result.error,
                 duration_ms=result.duration_ms,
+                cost=result.cost,
             )
             task.result.steps.append(record)
+            task.result.tool_cost = round(task.result.tool_cost + (result.cost or 0.0), 8)
 
             if result.ok:
                 self._capture_artifacts(task, agent, result)

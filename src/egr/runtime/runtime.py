@@ -143,6 +143,8 @@ class Runtime:
 
         # ---- execution ----------------------------------------------
         self.tools = register_builtin_tools(ToolRegistry())
+        self.mcp_failures: list[dict] = []
+        self._register_mcp_tools()
         self.agents: dict[str, AgentSpec] = {}
         self.agent_engine = AgentEngine(self)
         self.task_engine = TaskEngine(self)
@@ -256,7 +258,51 @@ class Runtime:
     # ---- contexts ----------------------------------------------------
     @property
     def security_context(self) -> dict[str, Any]:
-        return self.settings.config.security.model_dump()
+        """Tudo que uma ferramenta pode consultar para se auto-configurar."""
+
+        tools = self.settings.config.tools
+        return {
+            **self.settings.config.security.model_dump(),
+            "sandbox": tools.sandbox.model_dump(),
+            "git_enabled": tools.git.enabled,
+            "git_binary": tools.git.binary,
+            "email": tools.email.model_dump(),
+            "browser": tools.browser.model_dump(),
+        }
+
+    @property
+    def sandbox_info(self) -> dict[str, Any]:
+        from ..tools.sandbox import SandboxRunner
+
+        runner = SandboxRunner(
+            self.settings.config.tools.sandbox,
+            workspace=self.settings.workspace,
+            sandbox_dir=self.settings.sandbox_path,
+            artifacts_dir=self.settings.artifacts_path,
+            environment=str(self.settings.environment),
+        )
+        return runner.describe()
+
+    def _register_mcp_tools(self) -> None:
+        """Ferramentas MCP entram como Tools — sem herdar nenhuma permissão."""
+
+        from ..tools.mcp import connect_mcp_servers
+
+        if not self.settings.config.mcp.servers:
+            return
+        proxies, failures = connect_mcp_servers(self.settings.config.mcp)
+        for proxy in proxies:
+            self.tools.register(proxy)
+        self.mcp_failures = failures
+        self.audit.record(
+            EventType.SYSTEM_EVENT,
+            actor="runtime",
+            payload={
+                "action": "mcp_discovery",
+                "tools": [proxy.spec.name for proxy in proxies],
+                "failures": failures,
+            },
+        )
 
     def tool_context(self, task: Task, agent: AgentSpec | None = None) -> ToolContext:
         return ToolContext(
@@ -488,6 +534,13 @@ class Runtime:
                 "memory": self.memory.stats(),
                 "events": self.audit.count(),
             },
+            "sandbox": self.sandbox_info,
+            "mcp": {
+                "enabled": self.settings.config.mcp.enabled,
+                "servers": len(self.settings.config.mcp.servers),
+                "tools": [tool["name"] for tool in self.tools.list() if tool["name"].startswith("mcp.")],
+                "failures": self.mcp_failures,
+            },
             "models": self.gateway.list_providers(),
             "routing": self.settings.config.models.routing,
             "budget": self.settings.config.models.budget.model_dump(),
@@ -524,11 +577,32 @@ class Runtime:
         add("tools", len(self.tools.list()) > 0, f"{len(self.tools.list())} tools registered")
         add("policies", len(self.policy.list_policies()) > 0, f"{len(self.policy.list_policies())} policies active")
         add("agents", len(self.agents) > 0, f"{len(self.agents)} agents loaded")
+        sandbox = self.sandbox_info
         add(
             "sandbox",
             self.settings.sandbox_path.exists(),
-            f"{self.settings.sandbox_path} (python_exec={self.settings.config.security.python_exec_enabled})",
+            f"{self.settings.sandbox_path} (mode={sandbox['mode']}, "
+            f"python_exec={self.settings.config.security.python_exec_enabled})",
         )
+        if sandbox["mode"] != "container":
+            checks.append(
+                {
+                    "check": "sandbox:isolamento",
+                    "ok": False,
+                    "detail": (
+                        "sandbox em modo 'process': sem contêiner, o isolamento depende de "
+                        "política e confinamento de paths (instale Docker/Podman para modo container)"
+                    ),
+                }
+            )
+        for failure in self.mcp_failures:
+            checks.append(
+                {
+                    "check": f"mcp:{failure['server']}",
+                    "ok": False,
+                    "detail": failure["error"][:120],
+                }
+            )
         for name, report in self.gateway.health().items():
             add(f"model:{name}", report["healthy"], report["detail"])
         budget = self.settings.config.models.budget

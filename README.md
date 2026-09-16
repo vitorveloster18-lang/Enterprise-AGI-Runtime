@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0, 1 e 2 implementadas** (Foundation + Runtime Core + Model Gateway) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 3 implementadas** (Foundation + Runtime Core + Model Gateway + Tool Runtime) · Python-first.
 
 ---
 
@@ -117,12 +117,12 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Governança | `egr/policies` | Policy Engine (default deny), condições seguras (AST, sem `eval`), políticas em YAML |
 | Aprovações | `egr/runtime/runtime.py` | Approval como objeto de primeira classe, retomada de task |
 | Inteligência | `egr/models` | Model Gateway: roteamento por capacidade/custo/local_first, precificação, orçamento, telemetria |
-| Execução | `egr/tools` | Protocolo de Tool, registry, filesystem, python (sandbox), http, process, database (read-only) |
+| Execução | `egr/tools` | Protocolo de Tool, registry, **15 ferramentas**: filesystem, python (sandbox em contêiner), http, process, database (read-only), **git, e-mail, browser, MCP** |
 | Memória | `egr/memory` | knowledge / operational / episodic, namespaces, busca full-text (FTS5) |
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 39 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento) |
+| Testes | `tests/` | 56 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP) |
 
 ## 6. Comandos principais
 
@@ -133,6 +133,7 @@ egr task "objetivo"                 # executa (atalho do milestone)
 egr task list | inspect <id> | run | resume | cancel
 egr agent list | show | create | run | sync
 egr tool list | test <tool> --arg k=v --execute
+egr mcp list | call mcp.<servidor>.<ferramenta> --execute
 egr policy list --rules | test <ação> --arg amount=9000 | sync
 egr model list | health | test | usage             # usage = custo, tokens, latência
 egr memory search "texto" | write | list | stats
@@ -141,6 +142,58 @@ egr audit show --task <id> | verify | stats
 egr workflow list | run <id>
 egr proposal list | deploy | rollback      # Fases 7-9 (ainda não implementadas)
 ```
+
+## 5.1 Ferramentas (Fase 3)
+
+| Ferramenta | Risco | Política padrão |
+|---|---|---|
+| `filesystem.list/read` | low | allow |
+| `filesystem.write` | medium | allow (dev/staging) · aprovação em produção |
+| `python.execute` | high | allow (dev, sandbox) · aprovação em staging/produção |
+| `http.request` | high | allow · aprovação em produção · bloqueada se `external_ai: forbidden` |
+| `process.run` | critical | sempre aprovação |
+| `database.query` | medium | allow (read-only) · aprovação em produção |
+| `git.status/diff/log` | low | allow |
+| `git.commit` | high | sempre aprovação |
+| `email.send` | high | sempre aprovação |
+| `email.read` | medium | allow · aprovação em produção |
+| `browser.navigate/extract` | high | allow (dev) · aprovação nos demais |
+| `mcp.*` | medium | **nenhuma regra → default deny** |
+
+### Sandbox
+
+```yaml
+tools:
+  sandbox:
+    mode: auto          # auto | container | process
+    image: python:3.11-alpine
+    network: false      # contêiner sem rede
+    memory: 512m
+    cpus: '1'
+```
+
+Em modo `container`, o script roda com rede desligada, limites de recursos e o
+workspace montado **read-only**. Sem Docker/Podman, cai para `process` — e o
+`egr doctor` avisa que o isolamento é fraco (não finge que está tudo bem).
+
+### MCP
+
+```yaml
+mcp:
+  enabled: true
+  servers:
+    - name: calculadora
+      command: python
+      args: [servers/calculadora.py]
+```
+
+```bash
+egr mcp list
+egr mcp call mcp.calculadora.somar --arg a=2 --arg b=3 --execute
+```
+
+Ferramentas MCP são descobertas em runtime e **não herdam permissão nenhuma**: sem
+regra de política, o default deny bloqueia.
 
 ## 6.1 Custo e orçamento (Fase 2)
 
@@ -200,6 +253,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE0_FOUNDATION.md`](docs/PHASE0_FOUNDATION.md) — Fase 0
 - [`docs/PHASE1_RUNTIME_CORE.md`](docs/PHASE1_RUNTIME_CORE.md) — Fase 1
 - [`docs/PHASE2_MODEL_GATEWAY.md`](docs/PHASE2_MODEL_GATEWAY.md) — Fase 2 (custo, latência, orçamento)
+- [`docs/PHASE3_TOOL_RUNTIME.md`](docs/PHASE3_TOOL_RUNTIME.md) — Fase 3 (sandbox, git, e-mail, browser, MCP)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

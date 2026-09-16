@@ -46,6 +46,7 @@ class ToolResult(BaseModel):
     error: str | None = None
     artifacts: list[dict] = Field(default_factory=list)
     duration_ms: int = 0
+    cost: float = 0.0          # custo da chamada (APIs pagas, e-mail, etc.)
     metadata: dict = Field(default_factory=dict)
 
     @classmethod

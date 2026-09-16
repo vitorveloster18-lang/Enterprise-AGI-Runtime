@@ -48,6 +48,35 @@ CONFIG_HEADER = """# EGR — Enterprise AGI Runtime
 #         input_per_1m: 0.15
 #         output_per_1m: 0.60
 #
+# Ferramentas (Fase 3):
+#
+# tools:
+#   sandbox:
+#     mode: auto                  # auto | container | process
+#     image: python:3.11-alpine
+#     network: false              # contêiner sem rede
+#     memory: 512m
+#     cpus: '1'
+#     pids_limit: 128
+#   email:
+#     enabled: false              # envio sempre exige aprovação humana
+#     smtp_host: smtp.exemplo.com
+#     username_env: EGR_SMTP_USER
+#     password_env: EGR_SMTP_PASS
+#     cost_per_send: 0.0
+#   browser:
+#     enabled: false              # requer playwright instalado
+#     allowed_domains: []
+#
+# MCP — servidores externos entram como Tools (default deny até haver política):
+#
+# mcp:
+#   enabled: true
+#   servers:
+#     - name: calculadora
+#       command: python
+#       args: [./servers/calculadora.py]
+#
 """
 
 

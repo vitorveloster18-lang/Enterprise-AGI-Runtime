@@ -1,13 +1,13 @@
 # Roadmap — Fases 0 a 12
 
-Situação em 2026-09: **Fases 0, 1 e 2 implementadas e testadas** (39 testes).
+Situação em 2026-09: **Fases 0 a 3 implementadas e testadas** (56 testes).
 
 | Fase | Nome | Situação | Observação |
 |---|---|---|---|
 | 0 | Foundation | ✅ | monorepo Python, `egr init/status/doctor`, migrações, templates |
 | 1 | Runtime Core | ✅ | Task → Agent → Plan → Policy → Tool → Memory → Audit |
 | 2 | Model Gateway | ✅ | roteamento por capacidade/custo/local_first, precificação, telemetria (`model_calls`), orçamento por task e por dia, `egr model usage` |
-| 3 | Tool Runtime | 🟡 parcial | filesystem, python (sandbox), http, process, database; faltam browser, git, e-mail, MCP e sandbox forte (contêiner/seccomp) |
+| 3 | Tool Runtime | ✅ | filesystem, python, http, process, database, **browser, git, e-mail, MCP** + sandbox forte (contêiner) e custo por ferramenta |
 | 4 | Security + Policy | 🟡 parcial | Policy Engine, condições seguras, approval, redação e Data Boundary prontos; faltam identidade/RBAC (V2), cofre de segredos e gestão de chaves |
 | 5 | Memory | 🟡 parcial | knowledge/operational/episodic + FTS; falta o tipo `semantic` com embeddings e recuperação híbrida |
 | 6 | Orchestration | 🟡 parcial | `EventBus`, workflows declarativos e execução sequencial; faltam scheduler, triggers (cron/webhook/db), sub-tasks e coordenação multi-agente |

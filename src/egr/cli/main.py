@@ -12,6 +12,7 @@ from .commands import (
     approvals,
     audits,
     governance,
+    mcp,
     memory,
     models,
     policies,
@@ -47,6 +48,7 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(approvals.app, name="approval")
 app.add_typer(audits.app, name="audit")
 app.add_typer(workflows.app, name="workflow")
+app.add_typer(mcp.app, name="mcp")
 app.add_typer(governance.app, name="proposal")
 
 

@@ -195,9 +195,14 @@ superfície do CLI e informam explicitamente que dependem da Fase 9.
 filtrado (sem variáveis de segredo), timeout rígido e coleta de artefatos. Política
 exige aprovação fora de desenvolvimento; confinamento de paths é obrigatório.
 
-**Dívida aceita:** isolamento real (gVisor/contêiner com seccomp, rede desligada) é
-trabalho da Fase 3/Infra. Até lá, o sandbox é um isolamento de processo + política,
-**não** uma fronteira de segurança forte.
+**Atualização (Fase 3):** o `SandboxRunner` agora suporta dois backends —
+`container` (docker/podman: rede desligada, limites de memória/CPU/pids, workspace
+read-only, tmpfs em /tmp) e `process` (subprocesso com ambiente filtrado). O modo
+`auto` usa contêiner quando há runtime disponível.
+
+**Dívida restante:** em modo `process` o isolamento **não** é fronteira de segurança
+forte. Por isso o `egr doctor` reporta `sandbox:isolamento` como falha nesse modo, em
+vez de fingir que está tudo bem.
 
 ---
 
@@ -231,3 +236,35 @@ política e Data Boundary.
 
 **Consequências:** quando os modelos ficarem melhores e mais baratos, o Runtime se
 beneficia por configuração — exatamente a tese do produto.
+
+---
+
+## ADR-016 · Ferramentas MCP são default deny
+
+**Status:** aceita (Fase 3).
+
+**Contexto:** MCP permite descobrir ferramentas em runtime — ou seja, o conjunto de
+capacidades do Runtime pode mudar sem deploy.
+
+**Decisão:** ferramentas MCP entram registradas como `mcp.<servidor>.<ferramenta>` e
+**não herdam permissão alguma**. Como não há regra correspondente na baseline, o default
+deny as bloqueia até que uma política explicite a liberação.
+
+**Consequências:** conectar um servidor MCP nunca amplia silenciosamente o que o agente
+pode fazer. A superfície de risco cresce só quando alguém escreve a política — e isso
+fica registrado no repositório.
+
+---
+
+## ADR-017 · Custo também é de ferramenta, não só de token
+
+**Status:** aceita (Fase 3).
+
+**Contexto:** medir apenas tokens subestima o custo real de uma automação (APIs pagas,
+e-mail, SMS, consultas a terceiros).
+
+**Decisão:** `ToolResult` pode declarar `cost` por chamada; o Runtime acumula em
+`TaskResult.tool_cost` e expõe `total_cost = modelo + ferramentas`.
+
+**Consequências:** o cálculo ANTES x DEPOIS fica honesto — e o orçamento (ADR-014) pode,
+no futuro, cobrir ferramentas pagas com o mesmo mecanismo.

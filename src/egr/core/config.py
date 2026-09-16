@@ -84,6 +84,74 @@ class PathsConfig(BaseModel):
     documents: str = "documents"
 
 
+class SandboxConfig(BaseModel):
+    """Fase 3: isolamento real de execução.
+
+    auto      -> contêiner se houver runtime disponível, senão subprocesso
+    container -> exige docker/podman (falha se indisponível)
+    process   -> subprocesso local (isolamento fraco, só política + paths)
+    """
+
+    mode: Literal["auto", "container", "process"] = "auto"
+    runtime: str = "docker"  # docker | podman
+    image: str = "python:3.11-alpine"
+    network: bool = False
+    memory: str = "512m"
+    cpus: str = "1"
+    pids_limit: int = 128
+    tmpfs_size: str = "64m"
+    read_only_workspace: bool = True
+    timeout: int = 30
+
+
+class GitToolConfig(BaseModel):
+    enabled: bool = True
+    binary: str = "git"
+
+
+class EmailToolConfig(BaseModel):
+    enabled: bool = False
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    use_tls: bool = True
+    username_env: str | None = None
+    password_env: str | None = None
+    imap_host: str | None = None
+    imap_port: int = 993
+    from_address: str | None = None
+    cost_per_send: float = 0.0
+
+
+class BrowserToolConfig(BaseModel):
+    enabled: bool = False
+    headless: bool = True
+    timeout: int = 30
+    allowed_domains: list[str] = Field(default_factory=list)
+
+
+class MCPServerConfig(BaseModel):
+    name: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
+    timeout: int = 15
+
+
+class MCPConfig(BaseModel):
+    """Model Context Protocol: servidores externos entram como Tools."""
+
+    enabled: bool = True
+    servers: list[MCPServerConfig] = Field(default_factory=list)
+
+
+class ToolsConfig(BaseModel):
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    git: GitToolConfig = Field(default_factory=GitToolConfig)
+    email: EmailToolConfig = Field(default_factory=EmailToolConfig)
+    browser: BrowserToolConfig = Field(default_factory=BrowserToolConfig)
+
+
 class SecurityConfig(BaseModel):
     python_exec_enabled: bool = True
     allow_network_tools: bool = True
@@ -123,6 +191,8 @@ class EGRConfig(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
@@ -218,13 +288,17 @@ __all__ = [
     "EGRConfig",
     "Literal",
     "LoggingConfig",
+    "MCPConfig",
+    "MCPServerConfig",
     "ModelsConfig",
     "PathsConfig",
     "PricingConfig",
     "ProviderConfig",
     "RuntimeConfig",
+    "SandboxConfig",
     "SecurityConfig",
     "Settings",
+    "ToolsConfig",
     "default_config",
     "dump_config",
     "expand_env",
