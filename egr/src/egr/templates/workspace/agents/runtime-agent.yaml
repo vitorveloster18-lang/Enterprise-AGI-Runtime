@@ -1,0 +1,19 @@
+id: runtime-agent
+name: Runtime Agent
+version: 1.0.0
+objective: Executar trabalho operacional usando as ferramentas locais do Runtime
+model:
+  capability: reasoning
+  temperature: 0.2
+  max_tokens: 2048
+memory:
+  - default
+permissions:
+  tools:
+    - filesystem.*
+    - python.execute
+    - database.query
+  namespaces:
+    - default
+  max_risk: high
+environment: development

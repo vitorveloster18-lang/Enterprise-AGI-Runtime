@@ -1,0 +1,20 @@
+id: invoice-processing
+name: Processamento de nota fiscal
+version: 1.0.0
+description: Exemplo de processo do vertical contábil (documento -> validação -> política -> execução)
+environment: development
+trigger:
+  type: event
+  event: invoice.received
+steps:
+  - id: s1
+    agent: document-agent
+    objective: Extrair e classificar as informações da nota fiscal recebida
+  - id: s2
+    agent: finance-agent
+    objective: Validar a nota fiscal contra o histórico e as regras financeiras
+  - id: s3
+    policy: finance-payment
+    tool: database.query
+    args:
+      sql: select id, status from tasks order by created_at desc limit 5

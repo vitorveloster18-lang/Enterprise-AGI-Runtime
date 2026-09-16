@@ -1,0 +1,17 @@
+id: finance-agent
+name: Finance Agent
+version: 1.0.0
+objective: Executar operacoes financeiras com aprovacao humana acima do limite
+model:
+  capability: reasoning
+  temperature: 0.0
+memory:
+  - finance
+permissions:
+  tools:
+    - filesystem.*
+    - database.query
+  namespaces:
+    - finance
+  max_risk: high
+environment: development

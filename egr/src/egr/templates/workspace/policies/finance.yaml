@@ -1,0 +1,26 @@
+id: finance-payment
+name: Política de pagamentos
+version: 1.0.0
+description: Limiares de aprovação para criação de pagamentos (exemplo do vertical contábil)
+priority: 50
+enabled: true
+rules:
+  - id: payment-auto
+    action: payment.create
+    condition: amount < 5000
+    decision: allow
+    reason: pagamentos abaixo de 5.000 podem ser automaticos
+
+  - id: payment-approval
+    action: payment.create
+    condition: amount >= 5000
+    decision: require_approval
+    required_role: finance_manager
+    reason: pagamentos a partir de 5.000 exigem aprovacao do gestor financeiro
+
+  - id: payment-production
+    action: payment.create
+    condition: environment == 'production'
+    decision: require_approval
+    required_role: finance_manager
+    reason: pagamentos em producao sempre passam por humano

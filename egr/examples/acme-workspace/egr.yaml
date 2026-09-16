@@ -1,0 +1,45 @@
+version: 1
+enterprise:
+  id: acme
+  name: ACME Contabilidade
+  settings:
+    data_residency: local
+    external_ai: allowed
+    audit_retention_days: 365
+    default_environment: development
+  created_at: '2026-09-16T02:04:26.945832Z'
+environment: development
+paths:
+  database: .egr/egr.db
+  sandbox: .egr/sandbox
+  artifacts: artifacts
+  logs: logs
+  documents: documents
+models:
+  providers:
+  - name: echo
+    type: echo
+    enabled: true
+    capabilities:
+    - reasoning
+    - chat
+    priority: 0
+    external: false
+    options: {}
+security:
+  python_exec_enabled: true
+  allow_network_tools: true
+  redact_secrets: true
+  sanitize_external_payloads: true
+  allowed_write_roots:
+  - artifacts
+  - .egr/sandbox
+runtime:
+  max_steps: 8
+  tool_timeout: 30
+  model_timeout: 120
+  auto_approve_in_development: false
+  pause_on_approval: true
+logging:
+  level: INFO
+  file: true

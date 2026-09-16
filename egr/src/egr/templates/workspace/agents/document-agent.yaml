@@ -1,0 +1,19 @@
+id: document-agent
+name: Document Agent
+version: 1.0.0
+objective: Analisar documentos locais, classificar e produzir relatorios auditaveis
+model:
+  capability: reasoning
+  temperature: 0.1
+memory:
+  - documents
+  - default
+permissions:
+  tools:
+    - filesystem.*
+    - python.execute
+  namespaces:
+    - documents
+    - default
+  max_risk: high
+environment: development
