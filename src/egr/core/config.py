@@ -168,6 +168,33 @@ class SecurityConfig(BaseModel):
     allow_agent_approval: bool = False
 
 
+class MemoryConfig(BaseModel):
+    """Fase 5 — memória: como recuperar, o que reforçar e o que esquecer."""
+
+    # hybrid | fts | semantic
+    retrieval: Literal["hybrid", "fts", "semantic"] = "hybrid"
+    #: pesos da fusão RRF (0 desliga um dos lados)
+    fts_weight: float = 1.0
+    semantic_weight: float = 1.0
+    #: candidatos por lado = limit * multiplicador
+    candidate_multiplier: int = 4
+    #: similaridade mínima para um candidato semântico entrar na fusão
+    min_cosine: float = 0.12
+    #: acima deste nº de registros o lado semântico deixa de varrer o acervo todo
+    max_semantic_scan: int = 20000
+    #: cosseno a partir do qual dois registros são a mesma memória
+    duplicate_threshold: float = 0.90
+    #: teto de registros comparados por consolidação (a varredura é O(n²))
+    max_consolidate_scan: int = 2000
+    #: meia-vida (dias) do decaimento da saliência
+    half_life_days: int = 30
+    #: dias que um registro arquivado espera antes de poder ser podado
+    retention_days: int = 365
+    auto_remember: bool = True  # tasks concluídas viram memória episódica
+    auto_recall: bool = True  # planejamento consulta a memória
+    max_context_chars: int = 2000
+
+
 class RuntimeConfig(BaseModel):
     max_steps: int = 8
     tool_timeout: int = 30
@@ -198,6 +225,7 @@ class EGRConfig(BaseModel):
     environment: Environment = Environment.DEVELOPMENT
     paths: PathsConfig = Field(default_factory=PathsConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
@@ -298,6 +326,7 @@ __all__ = [
     "LoggingConfig",
     "MCPConfig",
     "MCPServerConfig",
+    "MemoryConfig",
     "ModelsConfig",
     "PathsConfig",
     "PricingConfig",

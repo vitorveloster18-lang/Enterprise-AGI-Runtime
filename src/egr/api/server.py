@@ -30,6 +30,14 @@ class TaskCreate(BaseModel):
     environment: str | None = None
 
 
+class MemoryWrite(BaseModel):
+    content: str
+    kind: str = "knowledge"
+    namespace: str = "default"
+    tags: list[str] = []
+    importance: float | None = None
+
+
 class DecisionRequest(BaseModel):
     decision: str = "approve"  # approve | deny
     by: str = "console"
@@ -173,9 +181,51 @@ def create_app(runtime: Runtime) -> FastAPI:
         return runtime.audit.verify()
 
     @app.get("/v1/memory", tags=["governance"])
-    def memory(query: str = "", limit: int = 10) -> list[dict[str, Any]]:
-        records = runtime.memory.search(query, limit=limit) if query else runtime.memory.list(limit=limit)
+    def memory(
+        query: str = "",
+        limit: int = 10,
+        mode: str = "",
+        namespace: str = "",
+        explain: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Busca híbrida (léxico + semântico) na memória da empresa."""
+
+        records = (
+            runtime.memory.search(
+                query,
+                limit=limit,
+                mode=mode or None,
+                namespaces=[namespace] if namespace else None,
+                explain=explain,
+            )
+            if query
+            else runtime.memory.list(namespace=namespace or None, limit=limit)
+        )
         return [record.model_dump(mode="json") for record in records]
+
+    @app.post("/v1/memory", tags=["governance"])
+    def write_memory(payload: MemoryWrite) -> dict[str, Any]:
+        from ..domain.enums import MemoryKind
+
+        try:
+            kind = MemoryKind(payload.kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"kind inválido: {payload.kind}") from exc
+        record = runtime.memory.write(
+            payload.content,
+            kind=kind,
+            namespace=payload.namespace,
+            tags=payload.tags,
+            source="api",
+            importance=payload.importance,
+        )
+        return record.model_dump(mode="json")
+
+    @app.get("/v1/memory/stats", tags=["governance"])
+    def memory_stats() -> dict[str, Any]:
+        """Tipos, namespaces, vetores e distribuição do ciclo de vida."""
+
+        return runtime.memory.stats()
 
     # ------------------------------------------------------------------
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)

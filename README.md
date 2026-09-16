@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 4 implementadas** (Foundation + Runtime Core + Model Gateway + Tool Runtime + Security/Policy) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 5 implementadas** (Foundation + Runtime Core + Model Gateway + Tool Runtime + Security/Policy + Memory System) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 87 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves) |
+| Testes | `tests/` | 110 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida) |
 
 ## 6. Comandos principais
 
@@ -236,6 +236,33 @@ models:
       api_key_env: vault:openai      # credencial sai do cofre, não do YAML
 ```
 
+## 5.3 Memória (Fase 5)
+
+```bash
+egr memory search "liberar pagamento sem aprovação" -n finance --explain
+egr memory write "Limite de aprovação automática: R$ 5.000,00" -k knowledge -n finance
+egr memory consolidate            # relatório de near-duplicatas
+egr memory consolidate --apply    # arquiva a cópia menos saliente
+egr memory reindex                # reconstrói os vetores
+egr memory stats                  # tipos, namespaces, vetores, saliência
+```
+
+| Tipo | Guarda |
+|---|---|
+| `knowledge` | regras, políticas e fatos do negócio |
+| `operational` | como o trabalho foi feito (saída de ferramentas) |
+| `episodic` | o que aconteceu em cada task |
+| `semantic` | síntese destilada, não o episódio bruto |
+
+A busca é **híbrida**: BM25 (léxico, exato) + cosseno (semântico, tolerante a
+variação), fundidos por RRF. O embedding é **local e determinístico**
+(feature hashing + stemmer PT-BR + stopwords) — sem serviço externo, sem
+download, sem dado saindo da máquina.
+
+Ciclo de vida: `importância × reforço (uso) × decaimento (meia-vida de 30
+dias)`. Memória usada fica mais forte; duplicata é arquivada, nunca apagada em
+silêncio; `--prune --apply` é o único caminho para remover de verdade.
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -296,6 +323,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE2_MODEL_GATEWAY.md`](docs/PHASE2_MODEL_GATEWAY.md) — Fase 2 (custo, latência, orçamento)
 - [`docs/PHASE3_TOOL_RUNTIME.md`](docs/PHASE3_TOOL_RUNTIME.md) — Fase 3 (sandbox, git, e-mail, browser, MCP)
 - [`docs/PHASE4_SECURITY_POLICY.md`](docs/PHASE4_SECURITY_POLICY.md) — Fase 4 (identidade, RBAC, cofre, chaves)
+- [`docs/PHASE5_MEMORY_SYSTEM.md`](docs/PHASE5_MEMORY_SYSTEM.md) — Fase 5 (memória semântica, recuperação híbrida, ciclo de vida)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

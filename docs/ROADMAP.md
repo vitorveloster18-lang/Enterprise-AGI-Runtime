@@ -1,6 +1,6 @@
 # Roadmap — Fases 0 a 12
 
-Situação em 2026-09: **Fases 0 a 4 implementadas e testadas** (87 testes).
+Situação em 2026-09: **Fases 0 a 5 implementadas e testadas** (110 testes).
 
 | Fase | Nome | Situação | Observação |
 |---|---|---|---|
@@ -9,8 +9,8 @@ Situação em 2026-09: **Fases 0 a 4 implementadas e testadas** (87 testes).
 | 2 | Model Gateway | ✅ | roteamento por capacidade/custo/local_first, precificação, telemetria (`model_calls`), orçamento por task e por dia, `egr model usage` |
 | 3 | Tool Runtime | ✅ | filesystem, python, http, process, database, **browser, git, e-mail, MCP** + sandbox forte (contêiner) e custo por ferramenta |
 | 4 | Security + Policy | ✅ | identidade verificável (token com hash), RBAC checado na decisão, cofre cifrado (`EGR1`), gestão/rotação de chaves, `egr security/identity/secret/key` |
-| 5 | Memory | 🟡 parcial | knowledge/operational/episodic + FTS; falta o tipo `semantic` com embeddings e recuperação híbrida |
-| 4b | — | — | Fase 4 não cobre SSO/OIDC, HSM/KMS externo, segredo distribuído nem rotação automática — ver lacunas em `egr security status` |
+| 5 | Memory | ✅ | knowledge/operational/episodic/**semantic** com embedding local determinístico, recuperação híbrida (BM25 + cosseno via RRF), ciclo de vida (reforço/decaimento/saliência) e consolidação com arquivamento |
+| 5b | — | — | Fase 5 não cobre memória multimodal, nem limpeza automática de PII na escrita — avaliação de qualidade entra na Fase 8 |
 | 6 | Orchestration | 🟡 parcial | `EventBus`, workflows declarativos e execução sequencial; faltam scheduler, triggers (cron/webhook/db), sub-tasks e coordenação multi-agente |
 | 7 | Development Environment | ⏳ | agentes criando agents/tools/workflows dentro do sandbox |
 | 8 | Evaluation | ⏳ | testes, simulação, benchmark, regressão, custo, latência, segurança |
@@ -24,7 +24,7 @@ Legenda: ✅ concluído · 🟡 parcial (base pronta) · ⏳ não iniciado
 ## Sequência recomendada
 
 ```
-[V1] Fases 0-6     Runtime validado executando trabalho real (0-4 feitas)
+[V1] Fases 0-6     Runtime validado executando trabalho real (0-5 feitas)
 [V2] Fases 7-11    Plataforma empresarial (console, RBAC, integrações, multi-agente)
 [V3] Fase 12       Empresa autônoma: o Runtime constrói e evolui automações
 ```

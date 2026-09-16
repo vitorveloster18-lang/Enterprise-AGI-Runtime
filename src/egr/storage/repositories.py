@@ -263,6 +263,9 @@ class MemoryRepository:
             "ON CONFLICT(id) DO UPDATE SET data = excluded.data",
             (record.id, record.namespace, str(record.kind), _dump(record), iso(record.created_at)),
         )
+        # FTS5 não tem PK: reindexar sem remover a linha antiga duplicaria o
+        # registro na busca (e o reforço de saliência reescreve o tempo todo).
+        self.db.execute("DELETE FROM memory_fts WHERE id = ?", (record.id,))
         self.db.execute(
             "INSERT INTO memory_fts (id, namespace, content) VALUES (?, ?, ?)",
             (record.id, record.namespace, f"{record.summary}\n{record.content}"),
@@ -280,6 +283,7 @@ class MemoryRepository:
         namespaces: list[str] | None = None,
         kinds: list[str] | None = None,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[MemoryRecord]:
         namespace_filter = namespaces or []
         kind_filter = kinds or []
@@ -312,6 +316,8 @@ class MemoryRepository:
                 continue
             if kind_filter and str(record.kind) not in kind_filter:
                 continue
+            if record.archived and not include_archived:
+                continue
             results.append(record)
             if len(results) >= limit:
                 break
@@ -324,22 +330,104 @@ class MemoryRepository:
             return '""'
         return " OR ".join(f'"{token}"' for token in tokens)
 
-    def list(self, namespace: str | None = None, limit: int = 20) -> list[MemoryRecord]:
+    def list(
+        self,
+        namespace: str | None = None,
+        limit: int = 20,
+        include_archived: bool = False,
+        kind: str | None = None,
+    ) -> list[MemoryRecord]:
+        clauses, params = [], []
         if namespace:
-            rows = self.db.query(
-                "SELECT * FROM memory_records WHERE namespace = ? ORDER BY created_at DESC LIMIT ?",
-                (namespace, limit),
-            )
-        else:
-            rows = self.db.query("SELECT * FROM memory_records ORDER BY created_at DESC LIMIT ?", (limit,))
+            clauses.append("namespace = ?")
+            params.append(namespace)
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if not include_archived:
+            clauses.append("(data NOT LIKE '%\"archived\":true%')")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM memory_records {where} ORDER BY created_at DESC LIMIT ?",
+            (*params, limit),
+        )
         return [_load(row, MemoryRecord) for row in rows]
+
+    def all_records(self, include_archived: bool = True) -> list[MemoryRecord]:
+        """Cursor completo do acervo (para reindexar e consolidar)."""
+
+        rows = self.db.query("SELECT * FROM memory_records ORDER BY created_at")
+        records = [_load(row, MemoryRecord) for row in rows]
+        if include_archived:
+            return records
+        return [record for record in records if not record.archived]
 
     def stats(self) -> dict[str, int]:
         rows = self.db.query("SELECT kind, COUNT(*) AS total FROM memory_records GROUP BY kind")
         return {row["kind"]: row["total"] for row in rows}
 
+    def namespace_stats(self) -> dict[str, int]:
+        rows = self.db.query(
+            "SELECT namespace, COUNT(*) AS total FROM memory_records GROUP BY namespace ORDER BY total DESC"
+        )
+        return {row["namespace"]: row["total"] for row in rows}
+
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM memory_records") or 0)
+
+    def delete(self, record_id: str) -> bool:
+        self.db.execute("DELETE FROM memory_fts WHERE id = ?", (record_id,))
+        self.db.execute("DELETE FROM memory_vectors WHERE id = ?", (record_id,))
+        cursor = self.db.execute("DELETE FROM memory_records WHERE id = ?", (record_id,))
+        self.db.commit()
+        return bool(cursor.rowcount)
+
+    # ---- vetores semânticos (Fase 5) ---------------------------------
+    def save_vector(self, record_id: str, model: str, dim: int, vector: list[float]) -> None:
+        from ..memory.embeddings import to_bytes
+
+        self.db.execute(
+            "INSERT INTO memory_vectors (id, model, dim, data, updated_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET model = excluded.model, dim = excluded.dim, "
+            "data = excluded.data, updated_at = excluded.updated_at",
+            (record_id, model, dim, to_bytes(vector), iso()),
+        )
+        self.db.commit()
+
+    def get_vector(self, record_id: str) -> tuple[str, list[float]] | None:
+        from ..memory.embeddings import from_bytes
+
+        row = self.db.query_one("SELECT model, data FROM memory_vectors WHERE id = ?", (record_id,))
+        if row is None:
+            return None
+        return row["model"], from_bytes(row["data"])
+
+    def vectors(self, model: str | None = None) -> dict[str, list[float]]:
+        """id -> vetor. `model` filtra vetores gerados pelo algoritmo atual."""
+
+        from ..memory.embeddings import from_bytes
+
+        if model:
+            rows = self.db.query("SELECT id, data FROM memory_vectors WHERE model = ?", (model,))
+        else:
+            rows = self.db.query("SELECT id, data FROM memory_vectors")
+        return {row["id"]: from_bytes(row["data"]) for row in rows}
+
+    def vector_ids(self, model: str | None = None) -> set[str]:
+        if model:
+            rows = self.db.query("SELECT id FROM memory_vectors WHERE model = ?", (model,))
+        else:
+            rows = self.db.query("SELECT id FROM memory_vectors")
+        return {row["id"] for row in rows}
+
+    def count_vectors(self, model: str | None = None) -> int:
+        if model:
+            return int(self.db.scalar("SELECT COUNT(*) FROM memory_vectors WHERE model = ?", (model,)) or 0)
+        return int(self.db.scalar("SELECT COUNT(*) FROM memory_vectors") or 0)
+
+    def delete_vector(self, record_id: str) -> None:
+        self.db.execute("DELETE FROM memory_vectors WHERE id = ?", (record_id,))
+        self.db.commit()
 
 
 class ModelUsageRepository:

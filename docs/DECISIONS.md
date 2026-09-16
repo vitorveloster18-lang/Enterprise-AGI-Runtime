@@ -324,3 +324,58 @@ ponto de decisão (`security/rbac.py:require`), nunca na interface.
 
 **Consequências:** a matriz cabe em uma tela (`egr security roles`) e a resposta
 para "quem pode aprovar?" é uma consulta, não uma investigação.
+
+---
+
+## ADR-021 · Embedding local determinístico antes de qualquer provedor externo
+
+**Status:** aceita (Fase 5).
+
+**Contexto:** memória semântica normalmente significa chamar um serviço de
+embeddings — o que envia conteúdo da empresa para fora e cria dependência de
+rede. O EGR promete o oposto: a memória pertence à empresa.
+
+**Decisão:** vetor por **feature hashing** sobre radicais (stemmer leve PT-BR),
+bigramas e char 4-gramas, com `blake2b` (determinístico entre processos),
+tf sublinear e normalização L2. Stopwords são removidas; char-grams entram com
+peso baixo. O `model_id` é versionado e o vetor vive em tabela própria.
+
+**Consequências:** funciona offline, custa microssegundos e não vaza dado. O
+limite é semântica rasa (sem sinônimos distantes) — por isso o lado léxico
+(BM25) continua na fusão e um backend melhor pode entrar depois por
+reindexação, sem migração traumática.
+
+---
+
+## ADR-022 · Recuperação híbrida com RRF, não soma de scores
+
+**Status:** aceita (Fase 5).
+
+**Contexto:** BM25 e cosseno produzem escalas incomparáveis; somá-las exige
+normalização frágil e quebra quando um dos lados não retorna nada.
+
+**Decisão:** fundir por **Reciprocal Rank Fusion** ponderado
+(`w_fts/(60+rank_fts) + w_sem/(60+rank_sem)`), com pesos configuráveis em
+`memory.*` e modo selecionável (`hybrid` padrão, `fts`, `semantic`).
+
+**Consequências:** só a ordem relativa importa, então nenhuma escala precisa ser
+calibrada; desligar um lado é zerar um peso. O `--explain` expõe os ranks e o
+cosseno — a recuperação é inspecionável, não uma caixa preta.
+
+---
+
+## ADR-023 · Memória tem ciclo de vida, e esquecer é um ato explícito
+
+**Status:** aceita (Fase 5).
+
+**Contexto:** memória que só acumula degrada a recuperação e vira risco
+(conteúdo obsoleto sendo relembrado como verdade).
+
+**Decisão:** saliência = importância × reforço (uso) × decaimento (meia-vida).
+Near-duplicatas são detectadas por cosseno e a de menor saliência é
+**arquivada** (fora da busca padrão, nunca apagada). Só `--prune --apply`
+remove, e só depois da retenção vencer. `consolidate` sem `--apply` é relatório.
+
+**Consequências:** o acervo se mantém útil sem perda silenciosa de história — e
+toda remoção passa pela auditoria. O custo é uma varredura O(n²) na
+consolidação, limitada por `max_consolidate_scan`.

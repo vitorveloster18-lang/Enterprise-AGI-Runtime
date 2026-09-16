@@ -77,6 +77,16 @@ CONFIG_HEADER = """# EGR — Enterprise AGI Runtime
 #       command: python
 #       args: [./servers/calculadora.py]
 #
+# Memória (Fase 5): recuperação híbrida e ciclo de vida
+#
+# memory:
+#   retrieval: hybrid          # hybrid | fts | semantic
+#   semantic_weight: 1.0       # 0 desliga o lado semântico
+#   min_cosine: 0.12           # corte de similaridade
+#   half_life_days: 30         # decaimento da saliência
+#   duplicate_threshold: 0.90  # cosseno para considerar near-duplicata
+#   retention_days: 365        # arquivado só é podado depois disso
+#
 # Segurança (Fase 4): identidade, RBAC e cofre de segredos
 #
 # security:

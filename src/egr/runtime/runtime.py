@@ -130,7 +130,11 @@ class Runtime:
         self.artifacts = ArtifactRepository(self.db)
         self.settings_repository = SettingsRepository(self.db)
         self.usage = ModelUsageRepository(self.db)
-        self.memory = MemoryService(MemoryRepository(self.db), self.audit)
+        self.memory = MemoryService(
+            MemoryRepository(self.db),
+            audit=self.audit,
+            config=settings.config.memory,
+        )
 
         # ---- segurança (Fase 4) -------------------------------------
         self.keystore = MasterKeyStore(settings.workspace)
@@ -718,6 +722,7 @@ class Runtime:
                 "events": self.audit.count(),
             },
             "sandbox": self.sandbox_info,
+            "memory": self.memory.stats(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -808,6 +813,24 @@ class Runtime:
         problem = self.keystore.permission_problem()
         if problem:
             checks.append({"check": "security:chave_permissoes", "ok": False, "detail": problem})
+        memory_stats = self.memory.stats()
+        add(
+            "memory",
+            memory_stats["total"] > 0,
+            f"{memory_stats['total']} registros "
+            f"({memory_stats['active']} ativos, {memory_stats['archived']} arquivados)",
+        )
+        if memory_stats["without_vector"]:
+            checks.append(
+                {
+                    "check": "memory:vetores",
+                    "ok": False,
+                    "detail": (
+                        f"{memory_stats['without_vector']} registro(s) sem vetor semântico "
+                        "(`egr memory reindex` reconstrói)"
+                    ),
+                }
+            )
         for name, report in self.gateway.health().items():
             add(f"model:{name}", report["healthy"], report["detail"])
         budget = self.settings.config.models.budget
