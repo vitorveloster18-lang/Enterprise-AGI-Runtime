@@ -218,6 +218,41 @@ def baseline_policy() -> Policy:
                 required_role="operator",
                 reason="extração fora de desenvolvimento exige aprovação",
             ),
+            # ---------------- desenvolvimento (Fase 7) ---------
+            PolicyRule(
+                id="dev-propose",
+                action="dev.propose",
+                condition=f"environment == '{DEV}'",
+                decision=DecisionType.ALLOW,
+                reason="propor mudança é o caminho normal de trabalho em desenvolvimento",
+            ),
+            PolicyRule(
+                id="dev-propose-guarded",
+                action="dev.propose",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="propor mudança fora de desenvolvimento exige aprovação",
+            ),
+            PolicyRule(
+                id="dev-proposals",
+                action="dev.proposals",
+                decision=DecisionType.ALLOW,
+                reason="listar propostas é leitura",
+            ),
+            PolicyRule(
+                id="dev-trial-development",
+                action="dev.trial",
+                condition=f"environment == '{DEV}'",
+                decision=DecisionType.ALLOW,
+                reason="provar código no sandbox (isolado, dry-run) é permitido em desenvolvimento",
+            ),
+            PolicyRule(
+                id="dev-trial-guarded",
+                action="dev.trial",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="executar código proposto fora de desenvolvimento exige aprovação",
+            ),
             # ---------------- memory ---------------------------
             PolicyRule(
                 id="memory-write",

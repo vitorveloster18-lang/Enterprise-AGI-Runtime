@@ -15,6 +15,8 @@ from ..core.ids import new_id
 from ..core.logging import get_logger, setup_logging
 from ..core.paths import find_workspace_root, require_workspace_root
 from ..core.timeutil import utcnow
+from ..dev.loader import load_tool_dir
+from ..dev.workbench import Workbench
 from ..domain.agent import AgentPermissions, AgentSpec, ModelSpec
 from ..domain.approval import Approval
 from ..domain.enums import (
@@ -41,6 +43,7 @@ from ..storage.repositories import (
     AgentRepository,
     ApprovalRepository,
     ArtifactRepository,
+    ChangeProposalRepository,
     EnterpriseRepository,
     IdentityRepository,
     KeyRepository,
@@ -75,7 +78,15 @@ def default_agents() -> list[AgentSpec]:
             model=ModelSpec(capability="reasoning"),
             memory=["default"],
             permissions=AgentPermissions(
-                tools=["filesystem.*", "python.execute", "database.query"], namespaces=["default"]
+                tools=[
+                    "dev.propose",
+                    "dev.proposals",
+                    "dev.trial",
+                    "filesystem.*",
+                    "python.execute",
+                    "database.query",
+                ],
+                namespaces=["default"],
             ),
             environment=Environment.DEVELOPMENT,
         ),
@@ -147,6 +158,7 @@ class Runtime:
 
         # ---- orquestração (Fase 6) ----------------------------------
         self.runs = WorkflowRunRepository(self.db)
+        self.proposals = ChangeProposalRepository(self.db)
 
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
@@ -168,12 +180,14 @@ class Runtime:
 
         # ---- execution ----------------------------------------------
         self.tools = register_builtin_tools(ToolRegistry())
+        self.tool_load_rejections = self._load_workspace_tools()
         self.mcp_failures: list[dict] = []
         self._register_mcp_tools()
         self.agents: dict[str, AgentSpec] = {}
         self.agent_engine = AgentEngine(self)
         self.task_engine = TaskEngine(self)
         self.orchestrator = WorkflowEngine(self)
+        self.workbench = Workbench(self)
         self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
@@ -321,6 +335,20 @@ class Runtime:
         )
         return runner.describe()
 
+    def _load_workspace_tools(self) -> list[dict]:
+        """Ferramentas criadas por proposta aprovada (`tools/*.py`).
+        Arquivo que não passa pela verificação estática é recusado com evento.
+        """
+
+        report = load_tool_dir(
+            self.settings.workspace / "tools",
+            audit=self.audit,
+            environment=str(self.settings.environment),
+        )
+        for tool in report.loaded:
+            self.tools.register(tool)
+        return report.rejected
+
     def _register_mcp_tools(self) -> None:
         """Ferramentas MCP entram como Tools — sem herdar nenhuma permissão."""
 
@@ -354,6 +382,7 @@ class Runtime:
             timeout=self.settings.config.runtime.tool_timeout,
             security=self.security_context,
             database_path=self.settings.db_path,
+            runtime=self,
         )
 
     def adhoc_tool_context(
@@ -375,6 +404,7 @@ class Runtime:
             timeout=self.settings.config.runtime.tool_timeout,
             security=self.security_context,
             database_path=self.settings.db_path,
+            runtime=self,
         )
 
     def completion_request(self, messages: list[Message], agent: AgentSpec) -> CompletionRequest:
@@ -688,6 +718,23 @@ class Runtime:
             },
         }
 
+    def dev_status(self) -> dict[str, Any]:
+        """Raio-X do ambiente de desenvolvimento: o que foi proposto e por quem."""
+
+        return self.workbench.status()
+
+    # ---- desenvolvimento (Fase 7) ------------------------------------
+    def propose_change(
+        self,
+        kind: str,
+        name: str,
+        content: str,
+        *,
+        origin: str = "human:cli",
+        rationale: str = "",
+    ):
+        return self.workbench.propose(kind, name, content, origin=origin, rationale=rationale)
+
     def security_status(self) -> dict[str, Any]:
         """Raio-X da postura de segurança — o que está verificado e o que não está."""
 
@@ -790,6 +837,7 @@ class Runtime:
             "sandbox": self.sandbox_info,
             "memory": self.memory.stats(),
             "orchestration": self.orchestration_status(),
+            "development": self.dev_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -913,6 +961,22 @@ class Runtime:
             )
         for name, report in self.gateway.health().items():
             add(f"model:{name}", report["healthy"], report["detail"])
+        dev = self.dev_status()
+        add(
+            "development",
+            True,
+            f"{dev['proposals']['total']} proposta(s), "
+            f"{dev['proposals']['awaiting_approval']} aguardando aprovação, "
+            f"{len(dev['workspace_tools']['files'])} ferramenta(s) do workspace",
+        )
+        for rejection in dev["workspace_tools"].get("rejected") or []:
+            checks.append(
+                {
+                    "check": f"dev:ferramenta:{rejection['file']}",
+                    "ok": False,
+                    "detail": "; ".join(rejection["problems"][:2]),
+                }
+            )
         budget = self.settings.config.models.budget
         if budget.per_day is not None:
             spent = self.usage.totals_today()["total_cost"]

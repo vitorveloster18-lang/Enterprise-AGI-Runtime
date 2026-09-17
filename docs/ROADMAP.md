@@ -1,6 +1,6 @@
 # Roadmap — Fases 0 a 12
 
-Situação em 2026-09: **Fases 0 a 6 implementadas e testadas** (132 testes).
+Situação em 2026-09: **Fases 0 a 7 implementadas e testadas** (167 testes).
 
 | Fase | Nome | Situação | Observação |
 |---|---|---|---|
@@ -12,8 +12,9 @@ Situação em 2026-09: **Fases 0 a 6 implementadas e testadas** (132 testes).
 | 5 | Memory | ✅ | knowledge/operational/episodic/**semantic** com embedding local determinístico, recuperação híbrida (BM25 + cosseno via RRF), ciclo de vida (reforço/decaimento/saliência) e consolidação com arquivamento |
 | 5b | — | — | Fase 5 não cobre memória multimodal, nem limpeza automática de PII na escrita — avaliação de qualidade entra na Fase 8 |
 | 6b | — | — | Fase 6 não cobre coordenação negociada entre agentes (handoff/leilão de tarefas) nem triggers de banco de dados — Fase 11 |
+| 7b | — | — | Fase 7 não prova *qualidade* do artefato (só que ele é seguro e roda), nem promove entre ambientes — Fases 8 e 9 |
 | 6 | Orchestration | ✅ | execução como objeto auditado, DAG com condição/retry/compensação/tolerância, paralelismo por nível, retomada e cancelamento, scheduler cron idempotente, gatilho por evento e webhook |
-| 7 | Development Environment | ⏳ | agentes criando agents/tools/workflows dentro do sandbox |
+| 7 | Development Environment | ✅ | proposta verificada (AST) + prova em sandbox + aprovação humana; agentes criam agents/tools/workflows sem nunca aplicar |
 | 8 | Evaluation | ⏳ | testes, simulação, benchmark, regressão, custo, latência, segurança |
 | 9 | Production Governance | ⏳ | promoção dev→staging→proposta→humano→produção, versionamento e rollback |
 | 10 | Remote Control | ⏳ | gateways Telegram/Slack/Web sobre a API local |

@@ -16,6 +16,7 @@ from ..domain.artifact import Artifact
 from ..domain.enterprise import Enterprise
 from ..domain.memory import MemoryRecord
 from ..domain.policy import Policy
+from ..domain.proposal import ChangeProposal
 from ..domain.run import WorkflowRun
 from ..domain.task import Task
 from ..security.identity import IdentityToken, Principal
@@ -762,3 +763,67 @@ class WorkflowRunRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM workflow_runs") or 0)
+
+
+class ChangeProposalRepository:
+    """Fase 7: o histórico de como o Runtime mudou a si mesmo."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, proposal: ChangeProposal) -> ChangeProposal:
+        proposal.updated_at = utcnow()
+        self.db.execute(
+            "INSERT INTO change_proposals (id, kind, name, status, origin, environment, fingerprint, data, "
+            "created_at, updated_at, decided_at, applied_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data, "
+            "fingerprint = excluded.fingerprint, updated_at = excluded.updated_at, "
+            "decided_at = excluded.decided_at, applied_at = excluded.applied_at",
+            (
+                proposal.id,
+                str(proposal.kind),
+                proposal.name,
+                str(proposal.status),
+                proposal.origin,
+                str(proposal.environment),
+                proposal.fingerprint,
+                _dump(proposal),
+                iso(proposal.created_at),
+                iso(proposal.updated_at),
+                iso(proposal.decided_at) if proposal.decided_at else None,
+                iso(proposal.applied_at) if proposal.applied_at else None,
+            ),
+        )
+        self.db.commit()
+        return proposal
+
+    def get(self, proposal_id: str) -> ChangeProposal | None:
+        row = self.db.query_one("SELECT * FROM change_proposals WHERE id = ?", (proposal_id,))
+        return _load(row, ChangeProposal) if row else None
+
+    def list(
+        self,
+        status: str | None = None,
+        kind: str | None = None,
+        limit: int = 20,
+    ) -> list[ChangeProposal]:
+        clauses, params = [], []
+        if status:
+            clauses.append("status = ?")
+            params.append(str(status))
+        if kind:
+            clauses.append("kind = ?")
+            params.append(str(kind))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM change_proposals {where} ORDER BY created_at DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, ChangeProposal) for row in rows]
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM change_proposals GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM change_proposals") or 0)

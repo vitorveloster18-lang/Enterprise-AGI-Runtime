@@ -11,6 +11,7 @@ from .commands import (
     agents,
     approvals,
     audits,
+    dev,
     governance,
     mcp,
     memory,
@@ -49,6 +50,8 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(approvals.app, name="approval")
 app.add_typer(audits.app, name="audit")
 app.add_typer(workflows.app, name="workflow")
+# desenvolvimento (Fase 7): o Runtime estendendo a si mesmo sob proposta
+app.add_typer(dev.app, name="dev")
 app.add_typer(mcp.app, name="mcp")
 app.add_typer(governance.app, name="proposal")
 # segurança (Fase 4): identidade, RBAC, cofre e chaves

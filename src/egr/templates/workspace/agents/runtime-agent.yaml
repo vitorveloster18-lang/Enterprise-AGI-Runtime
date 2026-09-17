@@ -10,6 +10,9 @@ memory:
   - default
 permissions:
   tools:
+    - dev.propose
+    - dev.proposals
+    - dev.trial
     - filesystem.*
     - python.execute
     - database.query

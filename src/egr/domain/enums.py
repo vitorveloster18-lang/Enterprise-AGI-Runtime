@@ -85,6 +85,16 @@ class EventType(BaseStrEnum):
     SECRET_REMOVED = "secret.removed"
     KEY_INITIALIZED = "key.initialized"
     KEY_ROTATED = "key.rotated"
+    # desenvolvimento (Fase 7): o Runtime estendendo a si mesmo sob proposta
+    DEV_PROPOSAL_CREATED = "dev.proposal_created"
+    DEV_PROPOSAL_VALIDATED = "dev.proposal_validated"
+    DEV_PROPOSAL_FAILED = "dev.proposal_failed"
+    DEV_PROPOSAL_TESTED = "dev.proposal_tested"
+    DEV_PROPOSAL_APPROVED = "dev.proposal_approved"
+    DEV_PROPOSAL_REJECTED = "dev.proposal_rejected"
+    DEV_PROPOSAL_APPLIED = "dev.proposal_applied"
+    DEV_TOOL_LOADED = "dev.tool_loaded"
+    DEV_TOOL_REJECTED = "dev.tool_rejected"
     # system
     SYSTEM_EVENT = "system.event"
 
@@ -116,6 +126,27 @@ class StepRunStatus(BaseStrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     CANCELLED = "cancelled"
+
+
+class ProposalKind(BaseStrEnum):
+    """Artefatos que o Runtime pode criar sob proposta (Fase 7)."""
+
+    AGENT = "agent"
+    TOOL = "tool"
+    WORKFLOW = "workflow"
+    POLICY = "policy"
+
+
+class ProposalStatus(BaseStrEnum):
+    """Ciclo de vida de uma proposta: nada entra no workspace sem passar por aqui."""
+
+    DRAFT = "draft"            # criada, ainda não validada
+    VALIDATED = "validated"    # passou pelas verificações estáticas
+    TESTED = "tested"          # executou no sandbox (ferramentas)
+    APPROVED = "approved"      # humano aprovou
+    APPLIED = "applied"        # escrita no workspace e carregada
+    REJECTED = "rejected"      # humano recusou
+    FAILED = "failed"          # reprovada nas verificações
 
 
 class ApprovalStatus(BaseStrEnum):

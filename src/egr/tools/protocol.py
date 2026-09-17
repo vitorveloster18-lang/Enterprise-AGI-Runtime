@@ -9,6 +9,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..domain.enums import Environment, RiskLevel
 from ..domain.tool import ToolRequest, ToolResult, ToolSpec
@@ -29,6 +30,9 @@ class ToolContext:
     dry_run: bool = False
     security: dict = field(default_factory=dict)
     database_path: Path | None = None
+    # Ferramentas de plataforma (dev.*) precisam falar com o Runtime — que continua
+    # no controle: elas são autorizadas pela política como qualquer outra.
+    runtime: Any | None = None
 
 
 class Tool(ABC):

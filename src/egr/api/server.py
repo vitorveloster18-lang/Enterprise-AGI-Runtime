@@ -24,6 +24,7 @@ TAGS = [
     {"name": "governance", "description": "Políticas, aprovações e auditoria"},
     {"name": "security", "description": "Identidade, RBAC, cofre e chaves"},
     {"name": "orchestration", "description": "Workflows, execuções, agenda e webhooks"},
+    {"name": "development", "description": "Propostas de mudança: criar agents/tools/workflows sob governo"},
 ]
 
 
@@ -45,6 +46,21 @@ class MemoryWrite(BaseModel):
     namespace: str = "default"
     tags: list[str] = []
     importance: float | None = None
+
+
+class ProposalCreate(BaseModel):
+    kind: str
+    name: str
+    content: str
+    rationale: str = ""
+    origin: str = "human:api"
+
+
+class ProposalDecision(BaseModel):
+    by: str = "human:api"
+    note: str = ""
+    args: dict = {}
+    timeout: int = 10
 
 
 class DecisionRequest(BaseModel):
@@ -252,6 +268,84 @@ def create_app(runtime: Runtime) -> FastAPI:
         """Agenda: o que está vencido agora e os próximos disparos."""
 
         return {"due": runtime.scheduler.due(), "upcoming": runtime.scheduler.upcoming(limit=limit)}
+
+    # ------------------------------------------------------------------
+    @app.get("/v1/dev", tags=["development"])
+    def dev_status() -> dict[str, Any]:
+        """Ambiente de desenvolvimento: propostas, ferramentas do workspace."""
+
+        return runtime.dev_status()
+
+    @app.get("/v1/dev/proposals", tags=["development"])
+    def dev_proposals(
+        status: str | None = None, kind: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        return [proposal.summary() for proposal in runtime.workbench.list(status=status, kind=kind, limit=limit)]
+
+    @app.post("/v1/dev/proposals", tags=["development"])
+    def dev_propose(payload: ProposalCreate) -> dict[str, Any]:
+        """Cria uma proposta. Nunca aplica: isso é ato humano."""
+
+        try:
+            proposal = runtime.workbench.propose(
+                payload.kind,
+                payload.name,
+                payload.content,
+                origin=payload.origin,
+                rationale=payload.rationale,
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return proposal.model_dump(mode="json")
+
+    @app.get("/v1/dev/proposals/{proposal_id}", tags=["development"])
+    def dev_proposal(proposal_id: str) -> dict[str, Any]:
+        proposal = runtime.proposals.get(proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="proposal not found")
+        return proposal.model_dump(mode="json")
+
+    @app.post("/v1/dev/proposals/{proposal_id}/validate", tags=["development"])
+    def dev_validate(proposal_id: str) -> dict[str, Any]:
+        try:
+            return runtime.workbench.validate(proposal_id).model_dump(mode="json")
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/dev/proposals/{proposal_id}/test", tags=["development"])
+    def dev_test(proposal_id: str, payload: ProposalDecision | None = None) -> dict[str, Any]:
+        payload = payload or ProposalDecision()
+        try:
+            proposal = runtime.workbench.trial(proposal_id, payload.args, timeout=payload.timeout)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return proposal.model_dump(mode="json")
+
+    @app.post("/v1/dev/proposals/{proposal_id}/approve", tags=["development"])
+    def dev_approve(proposal_id: str, payload: ProposalDecision | None = None) -> dict[str, Any]:
+        payload = payload or ProposalDecision()
+        try:
+            return runtime.workbench.approve(proposal_id, actor=payload.by, note=payload.note).model_dump(mode="json")
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/dev/proposals/{proposal_id}/reject", tags=["development"])
+    def dev_reject(proposal_id: str, payload: ProposalDecision | None = None) -> dict[str, Any]:
+        payload = payload or ProposalDecision()
+        try:
+            return runtime.workbench.reject(proposal_id, actor=payload.by, note=payload.note).model_dump(mode="json")
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/dev/proposals/{proposal_id}/apply", tags=["development"])
+    def dev_apply(proposal_id: str, payload: ProposalDecision | None = None) -> dict[str, Any]:
+        """Aplica uma proposta aprovada. Exige identidade quando ativada."""
+
+        payload = payload or ProposalDecision()
+        try:
+            return runtime.workbench.apply(proposal_id, actor=payload.by).model_dump(mode="json")
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])

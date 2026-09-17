@@ -94,7 +94,7 @@ def render_workspace(workspace: Path, *, overwrite: bool = False, sample: bool =
         destination.write_text(resource.read_text(encoding="utf-8"), encoding="utf-8")
         created.append(relative)
 
-    for directory in ("artifacts", "logs", "documents", ".egr/sandbox"):
+    for directory in ("artifacts", "logs", "documents", "tools", ".egr/sandbox"):
         (workspace / directory).mkdir(parents=True, exist_ok=True)
 
     if sample:

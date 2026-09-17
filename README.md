@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 6 implementadas** (escopo completo da V1: Foundation → Orchestration) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 7 implementadas** (V1: Foundation → Orchestration; V2 começando pelo Development Environment) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 132 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook) |
+| Testes | `tests/` | 167 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox) |
 
 ## 6. Comandos principais
 
@@ -293,6 +293,27 @@ tolerância aborta o run; falha tolerada termina como `partial`; aprovação pau
 em `waiting` e `resume` continua. Gatilhos: `event` (prefixo `invoice.*`),
 `cron` e webhook (`POST /v1/webhooks/{id}`, com identidade quando exigida).
 
+## 5.5 Development Environment (Fase 7)
+
+Agentes e humanos criam agents, tools, workflows e policies — **sempre como
+proposta**:
+
+```bash
+egr dev new tool exemplo.linhas        # rascunho (não escreve no workspace)
+egr dev validate <id>                  # verificação estática (AST, governo)
+egr dev test <id> --args '{"a": 41}'   # prova isolada, dry-run, com teto de tempo
+egr dev diff <id>                      # o que muda
+egr dev approve <id> --by vitor        # ato humano
+egr dev apply <id>                     # grava, faz backup e recarrega
+```
+
+Um agente chega até `dev.propose`. Não existe `dev.apply` para agentes: promoção
+sem humano não é uma ferramenta que faltou — é um ato que pertence a pessoas.
+Código proposto é lido (imports, `eval`/`subprocess`, contrato `Tool`,
+namespace) e provado em diretório descartável antes de alguém assinar.
+Agente não concede a outro mais do que ele mesmo tem (escalada por procuração
+fechada).
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -355,6 +376,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE4_SECURITY_POLICY.md`](docs/PHASE4_SECURITY_POLICY.md) — Fase 4 (identidade, RBAC, cofre, chaves)
 - [`docs/PHASE5_MEMORY_SYSTEM.md`](docs/PHASE5_MEMORY_SYSTEM.md) — Fase 5 (memória semântica, recuperação híbrida, ciclo de vida)
 - [`docs/PHASE6_ORCHESTRATION.md`](docs/PHASE6_ORCHESTRATION.md) — Fase 6 (DAG, retry, compensação, agenda, webhooks)
+- [`docs/PHASE7_DEV_ENVIRONMENT.md`](docs/PHASE7_DEV_ENVIRONMENT.md) — Fase 7 (proposta verificada, prova em sandbox, aprovação humana)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

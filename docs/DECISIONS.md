@@ -429,3 +429,69 @@ termina com falhas toleradas é `partial`, não `completed`.
 **Consequências:** o relatório do run distingue "não rodou porque não devia" de
 "não rodou porque o run morreu" — distinção essencial quando alguém pergunta
 por que um processo não produziu resultado.
+
+---
+
+## ADR-027 · Mudança entra como proposta verificada, nunca como arquivo escrito
+
+**Status:** aceita (Fase 7).
+
+**Contexto:** "o agente cria agentes" é a promessa mais fácil de fazer e a mais
+perigosa de cumprir: se um modelo pode escrever em `agents/`, `tools/` e
+`policies/`, ele pode reescrever as próprias regras. O valor do Runtime está em
+ser o que o modelo **não** controla.
+
+**Decisão:** todo artefato novo (agent/tool/workflow/policy) nasce como
+`ChangeProposal` em `.egr/dev/` + tabela `change_proposals`, passa por
+verificação estática, é provado em sandbox quando é código, e só então é
+aplicado por um humano (`egr dev approve` → `egr dev apply`). O arquivo aplicado
+carrega linhagem (`# egr:origin`, `# egr:proposal`). `dev.apply` **não existe**
+como ferramenta de agente.
+
+**Consequências:** o agente continua capaz de estender o sistema — perde apenas o
+poder de fazê-lo sozinho. Cada mudança tem autor, motivo, verificações, prova e
+aprovador; o histórico sobrevive ao arquivo (que pode ser sobrescrito).
+
+---
+
+## ADR-028 · Código proposto é lido (AST) e provado (sandbox) antes do humano
+
+**Status:** aceita (Fase 7).
+
+**Contexto:** aprovar código escrito por um modelo é assimétrico: quem aprova
+precisa entender o que está assinando, e ler é caro.
+
+**Decisão:** duas barreiras automáticas antes da decisão humana. (1) **Estática**:
+análise de AST — imports permitidos (lista branca), sem `eval`/`exec`/
+`subprocess`/`socket`/`pickle`/atributos internos, sem código solto no nível
+superior, contrato `Tool` conferido, e as ferramentas declaradas confinadas ao
+namespace do módulo. (2) **Dinâmica**: `dev.trial` executa a ferramenta em
+diretório descartável, com `dry_run=True`, teto de tempo, ambiente sem segredos
+e coleta do que foi escrito — reusando o sandbox da Fase 3 (contêiner quando
+disponível).
+
+**Consequências:** o humano aprova sabendo que o código importa o que diz
+importar e roda sem estourar o tempo. Limites conhecidos, declarados: `dry_run`
+é convenção que o autor pode ignorar, e o modo `process` não é isolamento real —
+por isso a aprovação continua sendo humana, e o loader revalida o arquivo em
+cada inicialização (arquivo adulterado é recusado com evento `dev.tool_rejected`).
+
+---
+
+## ADR-029 · Um agente não concede a outro mais do que ele mesmo tem
+
+**Status:** aceita (Fase 7).
+
+**Contexto:** sem esta regra, basta um agente com `dev.propose` para criar um
+"super-agente" com todas as permissões — escalada silenciosa por procuração.
+
+**Decisão:** quando a origem é `agent:<id>`, a proposta é conferida contra o
+agente de origem: cada ferramenta concedida tem de estar no alcance dele,
+`max_risk` não pode subir, namespaces fora do alcance são recusados, e política
+não nasce em produção. A regra é avaliada sobre os nomes concretos do registry —
+não sobre curingas — e a ausência de `permissions.tools` vira aviso, não passe
+livre.
+
+**Consequências:** o conjunto de permissões do sistema só cresce por decisão
+humana. Agente que tenta escalar vê a proposta **falhar na verificação**, com o
+motivo listado, em vez de ser negado em silêncio.
