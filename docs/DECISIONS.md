@@ -806,3 +806,46 @@ espera em progressão geométrica com teto. Esgotadas as tentativas, o job vira
 **Consequências:** o pedido sobrevive ao 503 e a reentrega não duplica; o custo é
 um processo a mais para rodar (`egr integration drain`), porque o Runtime não sai
 chamando sistema alheio sozinho.
+
+---
+
+## ADR-047 · Anexo é conteúdo: entra por lista branca e dorme no workspace
+
+**Status:** aceita (Fase 13, lacuna 10b).
+
+**Contexto:** atender "mensagem por mensagem" deixava o arquivo de fora — e o
+arquivo é onde está o trabalho real (nota fiscal, extrato, contrato, planilha).
+Aceitar qualquer coisa, por outro lado, é abrir a porta do workspace para o que
+chegar de um chat.
+
+**Decisão:** o canal **descreve** o anexo e oferece um `fetch`; o Runtime decide
+se chama. Tipo e tamanho vêm de lista branca (`gateway.attachments.allowed_mime`
+/ `allowed_extensions` / `max_bytes`), o conteúdo só é baixado depois dessa
+conferência, é gravado em `artifacts/inbox/<canal>/<remetente>/` com impressão
+digital, e o que vira contexto da task é o caminho mais um trecho redigido. A
+recusa é registrada como anexo `rejected` com motivo — não como silêncio.
+
+**Consequências:** o workspace continua sendo a fronteira (nada em `/tmp` à
+revelia) e o que foi barrado é auditável; o custo é que tipo novo exige
+configuração explícita (de propósito) e que conteúdo binário é guardado, não
+interpretado.
+
+---
+
+## ADR-048 · Botão é mensagem com melhor aparência
+
+**Status:** aceita (Fase 13, lacuna 10b).
+
+**Contexto:** decisão pelo celular tem de ser fácil, mas "fácil" não pode
+significar "sem governo". Um botão que executa direto é um atalho em volta da
+política.
+
+**Decisão:** `ReplyChoice` carrega apenas `label`, `action` e `value`. Ao ser
+apertado, `handle_interaction` traduz a ação para o comando equivalente
+(`aprovar` → `/aprovar <id>`) e entrega ao mesmo `handle_inbound`: mesmo
+pareamento, mesmo RBAC, mesma política, mesma trilha. Ações fora do mapa
+(`INTERACTION_ACTIONS`) são recusadas e registradas.
+
+**Consequências:** aprovar pelo celular é tão governado quanto aprovar pelo
+console; o custo é que o botão não faz nada que o comando não faça — inclusive
+quando o comando é negado.

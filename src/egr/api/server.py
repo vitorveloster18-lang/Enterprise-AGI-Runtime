@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..core.errors import AuthenticationError, AuthorizationError, ConfigError
 from ..domain.evaluation import EvaluationSuite
@@ -100,6 +100,30 @@ class GatewayMessageRequest(BaseModel):
     external_id: str = "anonimo"
     text: str
     display_name: str = ""
+    #: lacuna 10b: arquivos junto com a mensagem (nome, tipo e conteúdo em base64)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GatewayAttachmentRequest(BaseModel):
+    """Lacuna 10b: upload direto (o canal web não tem `file_id` para oferecer)."""
+
+    channel: str = "web"
+    external_id: str = "anonimo"
+    name: str
+    mime: str = ""
+    content_base64: str = ""
+    text: str = ""
+    display_name: str = ""
+
+
+class GatewayInteractionRequest(BaseModel):
+    """Lacuna 10b: um botão apertado — vira comando, nunca execução direta."""
+
+    channel: str
+    external_id: str
+    action: str
+    value: str = ""
+    display_name: str = ""
 
 
 class GatewayPairRequest(BaseModel):
@@ -147,6 +171,36 @@ def bearer_token(authorization: str | None) -> str | None:
     if not authorization or not authorization.lower().startswith("bearer "):
         return None
     return authorization.split(" ", 1)[1].strip() or None
+
+
+def _decode(content_base64: str) -> bytes:
+    """Base64 do upload: erro de codificação é 400, não exceção interna."""
+
+    import base64
+    import binascii
+
+    try:
+        return base64.b64decode(content_base64 or "", validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"conteúdo base64 inválido: {exc}") from exc
+
+
+def _decode_attachments(items: list[dict[str, Any]]):
+    from ..domain.channel import InboundAttachment
+
+    decoded = []
+    for item in items or []:
+        content = _decode(item.get("content_base64", "")) if item.get("content_base64") else None
+        decoded.append(
+            InboundAttachment(
+                name=str(item.get("name") or "anexo"),
+                mime=str(item.get("mime") or ""),
+                size=len(content) if content is not None else int(item.get("size") or 0),
+                content=content,
+                remote_ref=str(item.get("remote_ref") or "upload"),
+            )
+        )
+    return decoded
 
 
 def create_app(runtime: Runtime) -> FastAPI:
@@ -641,13 +695,86 @@ def create_app(runtime: Runtime) -> FastAPI:
     def gateway_message(request: GatewayMessageRequest) -> dict[str, Any]:
         """Entrega uma mensagem ao Gateway (o canal web usa esta rota)."""
 
-        reply = runtime.channels.handle(
+        from ..domain.channel import InboundMessage
+
+        message = InboundMessage(
+            channel=request.channel,
+            external_id=request.external_id,
+            text=request.text,
+            display_name=request.display_name,
+            attachments=_decode_attachments(request.attachments),
+        )
+        return runtime.channels.handle_inbound(message).summary()
+
+    @app.get("/v1/gateway/attachments", tags=["gateway"])
+    def gateway_attachments(
+        channel: str | None = None,
+        external_id: str | None = None,
+        status: str | None = None,
+        limit: int = 20,
+    ):
+        """Anexos que entraram — aceitos e recusados, com motivo."""
+
+        return [
+            item.summary()
+            for item in runtime.gateway_attachments.list(
+                channel=channel, external_id=external_id, status=status, limit=limit
+            )
+        ]
+
+    @app.get("/v1/gateway/attachments/{attachment_id}", tags=["gateway"])
+    def gateway_attachment(attachment_id: str) -> dict[str, Any]:
+        """Um anexo: caminho, impressão digital, situação e trecho redigido."""
+
+        item = runtime.gateway_attachments.get(attachment_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="anexo não encontrado")
+        return {**item.summary(), "trecho": item.preview}
+
+    @app.post("/v1/gateway/attachments", tags=["gateway"])
+    def gateway_attachment_upload(request: GatewayAttachmentRequest) -> dict[str, Any]:
+        """Recebe um arquivo (com ou sem mensagem) pela fronteira governada."""
+
+        from ..domain.channel import InboundAttachment, InboundMessage
+
+        binding = runtime.gateway_bindings.get(f"{request.channel}:{request.external_id}")
+        if runtime.settings.config.gateway.require_pairing and (binding is None or not binding.active):
+            raise HTTPException(status_code=403, detail="remetente sem pareamento ativo")
+        content = _decode(request.content_base64)
+        pending = InboundAttachment(
+            name=request.name, mime=request.mime, size=len(content), content=content, remote_ref="upload"
+        )
+        actor = binding.principal_id if binding else f"{request.channel}:{request.external_id}"
+        stored = runtime.channels.attachments.receive_many(
+            request.channel, request.external_id, [pending], actor=actor
+        )
+        if request.text.strip():
+            reply = runtime.channels.handle_inbound(
+                InboundMessage(
+                    channel=request.channel,
+                    external_id=request.external_id,
+                    text=request.text,
+                    display_name=request.display_name,
+                )
+            )
+            for item in stored:
+                if item.stored:
+                    item.attach(reply.task_id or "")
+                    runtime.gateway_attachments.save(item)
+            return {**reply.summary(), "anexo": stored[0].summary()}
+        return {"anexo": stored[0].summary()}
+
+    @app.post("/v1/gateway/interactions", tags=["gateway"])
+    def gateway_interaction(request: GatewayInteractionRequest) -> dict[str, Any]:
+        """Botão apertado: vira o comando que ele representa — governado igual."""
+
+        return runtime.channels.handle_interaction(
             request.channel,
             request.external_id,
-            request.text,
+            request.action,
+            request.value,
             display_name=request.display_name,
-        )
-        return reply.summary()
+        ).summary()
 
     @app.get("/v1/gateway/messages", tags=["gateway"])
     def gateway_messages(channel: str | None = None, direction: str | None = None, limit: int = 20):

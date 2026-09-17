@@ -21,17 +21,36 @@ from typing import Any
 
 from ..core.ids import new_id
 from ..core.timeutil import utcnow
-from ..domain.channel import ChannelBinding, GatewayMessage, GatewayReply, InboundMessage
-from ..domain.enums import BindingStatus, EventType, TaskStatus
+from ..domain.channel import (
+    Attachment,
+    ChannelBinding,
+    GatewayMessage,
+    GatewayReply,
+    InboundMessage,
+    ReplyChoice,
+)
+from ..domain.enums import AttachmentStatus, BindingStatus, EventType, TaskStatus
 from ..security.rbac import APPROVAL_DECIDE, GATEWAY_USE, TASK_READ, TASK_SUBMIT, has_permission
 from ..security.redaction import redact_text
+from .attachments import AttachmentService
 
 HELP = (
-    "comandos: /ajuda · /quem · /status · /tasks · /parear\n"
+    "comandos: /ajuda · /quem · /status · /tasks · /parear · /anexos\n"
     "• /run <objetivo> — executa uma task agora\n"
     "• /aprovar <id> — decide uma aprovação pendente (canal habilitado)\n"
+    "• /anexo <id> — detalha um arquivo que você mandou\n"
+    "• /arquivo <caminho> — devolve um arquivo do workspace (raízes liberadas)\n"
+    "• mande um arquivo: ele entra como anexo governado (tipo e tamanho conferidos)\n"
     "• qualquer outra mensagem é tratada como objetivo de task"
 )
+
+#: ações que um botão pode pedir (o resto não existe)
+INTERACTION_ACTIONS = {
+    "aprovar": "/aprovar {value}",
+    "recusar": "/recusar {value}",
+    "repetir": "/tasks",
+    "ajuda": "/ajuda",
+}
 
 
 class GatewayService:
@@ -41,6 +60,8 @@ class GatewayService:
         self.runtime = runtime
         self.bindings = runtime.gateway_bindings
         self.messages = runtime.gateway_messages
+        # lacuna 10b: anexo entra governado (tipo, tamanho, destino e trilha)
+        self.attachments = AttachmentService(runtime)
         self._channels: dict[str, Any] = {}
 
     # ---- canais ------------------------------------------------------
@@ -292,6 +313,7 @@ class GatewayService:
         binding.touch()
         self.bindings.save(binding)
 
+        stored = self._receive_attachments(message, principal)
         command, argument = self._split(text)
         if command in ("ajuda", "help", "start"):
             reply = GatewayReply(text=HELP, channel=message.channel, external_id=message.external_id, command=command)
@@ -316,11 +338,82 @@ class GatewayService:
             reply = self._run(message, principal, argument or "", binding, config)
         elif command == "aprovar":
             reply = self._approve(message, principal, argument, config)
+        elif command == "recusar":
+            reply = self._decide(message, principal, argument, config, approve=False)
+        elif command == "anexos":
+            reply = self._attachments(message)
+        elif command == "anexo":
+            reply = self._attachment(message, argument)
+        elif command == "arquivo":
+            reply = self._file(message, principal, argument)
         else:
-            reply = self._run(message, principal, text, binding, config)
+            reply = self._run(message, principal, text, binding, config, attachments=stored)
 
+        self._link_attachments(stored, reply.task_id)
         self._log("out", message, reply.text, task_id=reply.task_id, denied=reply.denied, reason=reply.reason)
         return reply
+
+    # ---- interação por botão ------------------------------------------
+    def handle_interaction(
+        self,
+        channel: str,
+        external_id: str,
+        action: str,
+        value: str = "",
+        *,
+        display_name: str = "",
+    ) -> GatewayReply:
+        """Lacuna 10b: botão não executa nada — ele repete um comando.
+
+        O botão é conveniência de tela. Por dentro, a interação vira a mesma
+        mensagem que o remetente digitaria (`/aprovar <id>`), passando pelo
+        mesmo pareamento, pelas mesmas permissões e pela mesma trilha.
+        """
+
+        template = INTERACTION_ACTIONS.get((action or "").strip().lower())
+        self.runtime.audit.record(
+            EventType.GATEWAY_INTERACTION,
+            actor=f"{channel}:{external_id}",
+            environment=str(self.runtime.settings.environment),
+            payload={"canal": channel, "ação": action or "-", "valor": value or "-", "conhecida": bool(template)},
+        )
+        if template is None:
+            return GatewayReply(
+                text=f"ação desconhecida: {action}",
+                channel=channel,
+                external_id=external_id,
+                denied=True,
+                reason="ação desconhecida",
+            )
+        return self.handle_inbound(
+            InboundMessage(
+                channel=channel,
+                external_id=external_id,
+                text=template.format(value=value).strip(),
+                display_name=display_name,
+            )
+        )
+
+    def _receive_attachments(self, message: InboundMessage, principal) -> list[Attachment]:
+        """Anexos só são buscados depois que o remetente foi autorizado."""
+
+        if not message.attachments:
+            return []
+        return self.attachments.receive_many(
+            message.channel,
+            message.external_id,
+            message.attachments,
+            actor=getattr(principal, "id", "") or f"{message.channel}:{message.external_id}",
+        )
+
+    def _link_attachments(self, attachments: list[Attachment], task_id: str | None) -> None:
+        if not task_id:
+            return
+        for attachment in attachments:
+            if not attachment.stored:
+                continue
+            attachment.attach(task_id)
+            self.runtime.gateway_attachments.save(attachment)
 
     # ---- comandos -----------------------------------------------------
     def _who(self, binding: ChannelBinding, principal) -> GatewayReply:
@@ -381,10 +474,29 @@ class GatewayService:
             command="tasks",
         )
 
-    def _run(self, message: InboundMessage, principal, objective: str, binding: ChannelBinding, config) -> GatewayReply:
+    def _run(
+        self,
+        message: InboundMessage,
+        principal,
+        objective: str,
+        binding: ChannelBinding,
+        config,
+        attachments: list[Attachment] | None = None,
+    ) -> GatewayReply:
+        attachments = attachments or []
+        if attachments:
+            manifest = self.attachments.manifest(attachments)
+            accepted = any(item.stored for item in attachments)
+            objective = (objective or "").strip()
+            if objective:
+                objective = f"{objective}\n\n{manifest}"
+            elif accepted:
+                objective = f"{manifest}\n\nAnalise os anexos acima e responda com base neles."
+            else:
+                objective = manifest
         if not objective:
             return GatewayReply(
-                text="diga o que fazer: /run <objetivo> (ou escreva o objetivo direto)",
+                text="diga o que fazer: /run <objetivo> (ou escreva o objetivo direto, ou mande um arquivo)",
                 channel=message.channel,
                 external_id=message.external_id,
                 command="run",
@@ -410,14 +522,46 @@ class GatewayService:
             environment=environment,
             created_by=principal.id,
         )
-        return GatewayReply(
+        reply = GatewayReply(
             text=self._task_answer(task),
             channel=message.channel,
             external_id=message.external_id,
             task_id=task.id,
         )
+        reply.choices = self._choices_for(message, principal, config, task)
+        return reply
+
+    def _choices_for(self, message: InboundMessage, principal, config, task) -> list[ReplyChoice]:
+        """Botões só aparecem para quem pode decidir — e só decide o que existe."""
+
+        if config is None or not config.allow_decisions or not getattr(config, "allow_attachments", True):
+            return []
+        if not has_permission(principal, APPROVAL_DECIDE):
+            return []
+        if task.status not in (TaskStatus.REQUIRES_APPROVAL, TaskStatus.WAITING):
+            return []
+        choices: list[ReplyChoice] = []
+        for approval in self.runtime.approvals.pending_for_task(task.id)[:3]:
+            short = approval.id[-6:]
+            choices.append(
+                ReplyChoice(label=f"Aprovar {short}", action="aprovar", value=approval.id, style="primary")
+            )
+            choices.append(ReplyChoice(label=f"Recusar {short}", action="recusar", value=approval.id, style="danger"))
+        return choices
 
     def _approve(self, message: InboundMessage, principal, approval_id: str, config) -> GatewayReply:
+        return self._decide(message, principal, approval_id, config, approve=True)
+
+    def _decide(
+        self,
+        message: InboundMessage,
+        principal,
+        approval_id: str,
+        config,
+        *,
+        approve: bool,
+    ) -> GatewayReply:
+        verb = "aprovar" if approve else "recusar"
         if config is None or not config.allow_decisions:
             return GatewayReply(
                 text="este canal não decide aprovações (habilite allow_decisions no canal)",
@@ -425,7 +569,7 @@ class GatewayService:
                 external_id=message.external_id,
                 denied=True,
                 reason="canal sem allow_decisions",
-                command="aprovar",
+                command=verb,
             )
         if not has_permission(principal, APPROVAL_DECIDE):
             return GatewayReply(
@@ -438,28 +582,151 @@ class GatewayService:
             )
         if not approval_id:
             return GatewayReply(
-                text="uso: /aprovar <id da aprovação>",
+                text=f"uso: /{verb} <id da aprovação>",
                 channel=message.channel,
                 external_id=message.external_id,
-                command="aprovar",
+                command=verb,
             )
+        note = f"{verb} pelo canal {message.channel}"
         try:
-            approval = self.runtime.approve(approval_id, decided_by=principal.id, note="decidido pelo canal")
-        except Exception as exc:  # aprovação inexistente ou já decidida
+            if approve:
+                self.runtime.approve(approval_id, decided_by=principal.id, note=note)
+            else:
+                self.runtime.deny(approval_id, decided_by=principal.id, note=note)
+        except Exception as exc:  # aprovação inexistente, já decidida ou sem papel
             return GatewayReply(
-                text=f"não foi possível aprovar {approval_id}: {exc}",
+                text=f"não foi possível {verb} {approval_id}: {exc}",
                 channel=message.channel,
                 external_id=message.external_id,
                 denied=True,
                 reason=str(exc),
-                command="aprovar",
+                command=verb,
             )
         return GatewayReply(
-            text=f"aprovação {approval.id} decidida por {principal.id}",
+            text=f"aprovação {approval_id} {verb} por {principal.id}",
             channel=message.channel,
             external_id=message.external_id,
-            command="aprovar",
+            command=verb,
         )
+
+    # ---- anexos (lacuna 10b) ------------------------------------------
+    def _attachments(self, message: InboundMessage) -> GatewayReply:
+        rows = self.runtime.gateway_attachments.list(
+            channel=message.channel, external_id=message.external_id, limit=5
+        )
+        if not rows:
+            return GatewayReply(
+                text="você ainda não mandou anexos",
+                channel=message.channel,
+                external_id=message.external_id,
+                command="anexos",
+            )
+        lines = ["seus últimos anexos:"]
+        for item in rows:
+            state = str(item.status)
+            detail = f" — {item.reason}" if item.status != AttachmentStatus.STORED and item.reason else ""
+            lines.append(f"• {item.id} · {item.name} ({item.size} B) · {state}{detail}")
+        lines.append("detalhe: /anexo <id>")
+        return GatewayReply(
+            text="\n".join(lines),
+            channel=message.channel,
+            external_id=message.external_id,
+            command="anexos",
+        )
+
+    def _attachment(self, message: InboundMessage, attachment_id: str) -> GatewayReply:
+        identifier = (attachment_id or "").strip()
+        item = self.runtime.gateway_attachments.get(identifier) if identifier else None
+        if item is None:
+            return GatewayReply(
+                text="anexo não encontrado (veja /anexos)",
+                channel=message.channel,
+                external_id=message.external_id,
+                denied=True,
+                reason="anexo inexistente",
+                command="anexo",
+            )
+        if item.channel != message.channel or item.external_id != message.external_id:
+            self.runtime.audit.record(
+                EventType.GATEWAY_DENIED,
+                actor=f"{message.channel}:{message.external_id}",
+                environment=str(self.runtime.settings.environment),
+                payload={"motivo": "anexo de outro remetente", "anexo": item.id},
+            )
+            return GatewayReply(
+                text="esse anexo não é seu",
+                channel=message.channel,
+                external_id=message.external_id,
+                denied=True,
+                reason="anexo de outro remetente",
+                command="anexo",
+            )
+        lines = [
+            f"{item.name} — {item.mime or 'tipo não declarado'}, {item.size} B",
+            f"situação: {item.status}" + (f" ({item.reason})" if item.reason else ""),
+            f"caminho: {item.path or '-'}",
+            f"impressão: {item.checksum[:16] or '-'}",
+            f"task: {item.task_id or '-'}",
+        ]
+        if item.preview:
+            lines.append("trecho: " + item.preview.replace("\n", " ")[:300])
+        return GatewayReply(
+            text="\n".join(lines),
+            channel=message.channel,
+            external_id=message.external_id,
+            command="anexo",
+        )
+
+    def _file(self, message: InboundMessage, principal, argument: str) -> GatewayReply:
+        """Arquivo de volta: só de raízes declaradas, com teto e com trilha."""
+
+        target = (argument or "").strip()
+        if not target:
+            return GatewayReply(
+                text="uso: /arquivo <caminho em artifacts/>",
+                channel=message.channel,
+                external_id=message.external_id,
+                command="arquivo",
+            )
+        if not has_permission(principal, TASK_READ):
+            return GatewayReply(
+                text="seu papel não lê arquivos do workspace",
+                channel=message.channel,
+                external_id=message.external_id,
+                denied=True,
+                reason="sem permissão task.read",
+                command="arquivo",
+            )
+        prepared = self.attachments.outbound(target)
+        if not prepared.get("ok"):
+            return GatewayReply(
+                text=f"não enviado: {prepared.get('erro')}",
+                channel=message.channel,
+                external_id=message.external_id,
+                denied=True,
+                reason=str(prepared.get("erro")),
+                command="arquivo",
+            )
+        self.runtime.audit.record(
+            EventType.GATEWAY_ATTACHMENT,
+            actor=getattr(principal, "id", "") or f"{message.channel}:{message.external_id}",
+            environment=str(self.runtime.settings.environment),
+            payload={
+                "canal": message.channel,
+                "direção": "out",
+                "caminho": prepared["path"],
+                "tamanho": prepared["size"],
+                "situação": "sent",
+            },
+        )
+        reply = GatewayReply(
+            text=f"{prepared['name']} ({prepared['size']} B)",
+            channel=message.channel,
+            external_id=message.external_id,
+            command="arquivo",
+        )
+        reply.attachments = [prepared]
+        return reply
 
     # ---- resposta -----------------------------------------------------
     def _task_answer(self, task) -> str:
@@ -586,6 +853,7 @@ class GatewayService:
                 "por_direção": self.messages.stats(),
                 "recentes": [item.summary() for item in self.messages.list(limit=5)],
             },
+            "anexos": self.attachments.status(),
         }
 
 
@@ -595,4 +863,4 @@ def pairing_code() -> str:
     return secrets.token_hex(3).upper()
 
 
-__all__ = ["HELP", "GatewayService", "pairing_code"]
+__all__ = ["HELP", "INTERACTION_ACTIONS", "GatewayService", "pairing_code"]

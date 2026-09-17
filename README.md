@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 12 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control, Enterprise Integrations e Vertical Packs) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 12 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control, Enterprise Integrations e Vertical Packs) · **Fase 13 em andamento: fechamento das lacunas** (10b entregue) · Python-first.
 
 ---
 
@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 401 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais e fila de saída) |
+| Testes | `tests/` | 456 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 
@@ -414,6 +414,23 @@ Fila de saída (fecha a lacuna de integrações): `egr integration enqueue|drain
 com idempotência por chave, tentativas com espera crescente (30s → 60s → 120s,
 com teto) e desistência registrada — o pedido sobrevive ao 503 sem duplicar efeito.
 
+## 5.11 Anexos e botões dos canais (Fase 13 · lacuna 10b)
+
+```bash
+egr gateway upload web demo ./entrada.txt --text "classifique este anexo"
+egr gateway attachments | attachment <id>          # aceitos e recusados
+egr gateway send-file web demo artifacts/relatorio.md
+egr gateway interact web demo aprovar apr_123      # botão = comando
+```
+
+Arquivo de chat é **conteúdo**, não anexo decorativo: tipo e tamanho por lista
+branca, download só depois da conferência, gravação em `artifacts/inbox/`,
+impressão digital na trilha e recusa visível com motivo. Na saída, só o que
+estiver nas raízes liberadas — e com teto de tamanho.
+
+Botão não executa: ele repete um comando (`aprovar` → `/aprovar <id>`) e passa
+pelo mesmo pareamento, RBAC, política e auditoria.
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -482,6 +499,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE10_REMOTE_CONTROL.md`](docs/PHASE10_REMOTE_CONTROL.md) — Fase 10 (gateway de canais, pareamento, comandos)
 - [`docs/PHASE11_INTEGRATIONS.md`](docs/PHASE11_INTEGRATIONS.md) — Fase 11 (conectores REST/GraphQL/SQL/webhook, política por operação, eventos idempotentes)
 - [`docs/PHASE12_VERTICAL_PACKS.md`](docs/PHASE12_VERTICAL_PACKS.md) — Fase 12 (packs verticais por proposta e fila de saída com retry)
+- [`docs/PHASE13_LACUNAS_FECHADAS.md`](docs/PHASE13_LACUNAS_FECHADAS.md) — Fase 13 (fechamento das lacunas: anexos e botões, dreno, avaliação, assinatura, coordenação, memória)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

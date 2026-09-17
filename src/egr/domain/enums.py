@@ -128,6 +128,10 @@ class EventType(BaseStrEnum):
     PACK_INSTALLED = "pack.installed"
     PACK_REMOVED = "pack.removed"
     PACK_DENIED = "pack.denied"
+    # lacuna 10b: anexo é conteúdo governado; botão é atalho para um comando
+    GATEWAY_ATTACHMENT = "gateway.attachment"
+    GATEWAY_ATTACHMENT_REJECTED = "gateway.attachment_rejected"
+    GATEWAY_INTERACTION = "gateway.interaction"
     # system
     SYSTEM_EVENT = "system.event"
 
@@ -165,6 +169,18 @@ class BindingStatus(BaseStrEnum):
     PENDING = "pending"    # apareceu, mas ninguém autorizou
     ACTIVE = "active"      # pareado: fala com o Runtime conforme seus papéis
     BLOCKED = "blocked"    # recusado explicitamente
+
+
+class AttachmentStatus(BaseStrEnum):
+    """Lacuna 10b: o caminho de um anexo — aceito, guardado ou recusado.
+
+    Recusar também é resultado: o remetente recebe o motivo e a trilha
+    registra a tentativa. Nenhum arquivo entra em silêncio.
+    """
+
+    RECEIVED = "received"    # descrito pelo canal, ainda não guardado
+    STORED = "stored"        # gravado no inbox do workspace, com checksum
+    REJECTED = "rejected"    # tipo, tamanho ou origem fora do permitido
 
 
 class MemoryKind(BaseStrEnum):

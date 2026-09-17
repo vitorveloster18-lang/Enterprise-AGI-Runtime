@@ -14,7 +14,7 @@ from ..core.timeutil import iso, utcnow
 from ..domain.agent import AgentSpec
 from ..domain.approval import Approval
 from ..domain.artifact import Artifact
-from ..domain.channel import ChannelBinding, GatewayMessage
+from ..domain.channel import Attachment, ChannelBinding, GatewayMessage
 from ..domain.enterprise import Enterprise
 from ..domain.evaluation import EvaluationRun, EvaluationSuite
 from ..domain.integration import InboundEvent, Integration, IntegrationCall, IntegrationJob
@@ -1195,6 +1195,81 @@ class GatewayMessageRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM gateway_messages") or 0)
+
+
+class AttachmentRepository:
+    """Lacuna 10b: anexos que entraram por um canal — aceitos ou recusados."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, attachment: Attachment) -> Attachment:
+        self.db.execute(
+            "INSERT INTO gateway_attachments (id, channel, external_id, status, name, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, "
+            "data = excluded.data",
+            (
+                attachment.id,
+                attachment.channel,
+                attachment.external_id,
+                str(attachment.status),
+                attachment.name,
+                _dump(attachment),
+                iso(attachment.created_at),
+            ),
+        )
+        self.db.commit()
+        return attachment
+
+    def get(self, attachment_id: str) -> Attachment | None:
+        row = self.db.query_one("SELECT * FROM gateway_attachments WHERE id = ?", (attachment_id,))
+        return _load(row, Attachment) if row else None
+
+    def list(
+        self,
+        *,
+        channel: str | None = None,
+        external_id: str | None = None,
+        status: str | None = None,
+        task_id: str | None = None,
+        limit: int = 20,
+    ) -> list[Attachment]:
+        clauses, params = [], []
+        if channel:
+            clauses.append("channel = ?")
+            params.append(channel)
+        if external_id:
+            clauses.append("external_id = ?")
+            params.append(external_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(str(status))
+        if task_id:
+            clauses.append("json_extract(data, '$.task_id') = ?")
+            params.append(task_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM gateway_attachments {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, Attachment) for row in rows]
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM gateway_attachments GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def stored_bytes(self) -> int:
+        return int(
+            self.db.scalar(
+                "SELECT COALESCE(SUM(json_extract(data, '$.size')), 0) FROM gateway_attachments "
+                "WHERE status = ?",
+                ("stored",),
+            )
+            or 0
+        )
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM gateway_attachments") or 0)
 
 
 # ---------------------------------------------------------------------------

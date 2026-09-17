@@ -13,12 +13,96 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from ..core.timeutil import utcnow
-from .enums import BindingStatus
+from .enums import AttachmentStatus, BindingStatus
+
+
+class InboundAttachment(BaseModel):
+    """Lacuna 10b: o anexo **antes** de ser aceito.
+
+    O canal só descreve (`file_id`, url privada, nome declarado) e oferece um
+    `fetch` que baixa o conteúdo sob demanda — porque conteúdo só é buscado
+    depois que o Gateway conferiu tipo e tamanho contra a configuração.
+    """
+
+    name: str
+    mime: str = ""
+    size: int = 0
+    remote_ref: str = ""
+    content: bytes | None = None
+    fetch: Any = None         # Callable[[], bytes] — chamado só se permitido
+
+    @property
+    def extension(self) -> str:
+        return Path(self.name).suffix.lower()
+
+
+class Attachment(BaseModel):
+    """Um arquivo que entrou por um canal e agora vive no workspace."""
+
+    id: str
+    channel: str
+    external_id: str
+    name: str
+    mime: str = ""
+    size: int = 0
+    path: str = ""            # relativo ao workspace (`artifacts/inbox/...`)
+    checksum: str = ""
+    remote_ref: str = ""
+    status: AttachmentStatus = AttachmentStatus.RECEIVED
+    reason: str = ""
+    text_chars: int = 0       # caracteres extraídos (txt/md/csv/json)
+    preview: str = ""
+    task_id: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+    @property
+    def stored(self) -> bool:
+        return self.status == AttachmentStatus.STORED
+
+    def attach(self, task_id: str) -> None:
+        self.task_id = task_id
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "canal": self.channel,
+            "remetente": self.external_id,
+            "nome": self.name,
+            "tipo": self.mime or "-",
+            "tamanho": f"{self.size} B",
+            "caminho": self.path or "-",
+            "impressão": self.checksum[:16] + "…" if self.checksum else "-",
+            "situação": str(self.status),
+            "motivo": self.reason or "-",
+            "task": self.task_id or "-",
+            "quando": self.created_at.isoformat(),
+        }
+
+
+class ReplyChoice(BaseModel):
+    """Lacuna 10b: um botão — rótulo na tela, comando governado por dentro.
+
+    O botão não executa nada: ele devolve `action`/`value` ao Gateway, que
+    trata a interação como se fosse uma mensagem (`/aprovar <id>`), com o
+    mesmo pareamento, as mesmas permissões e a mesma trilha.
+    """
+
+    label: str
+    action: str                # aprovar | recusar | repetir | ver
+    value: str = ""
+    style: str = "default"     # default | primary | danger
+
+    def callback(self) -> str:
+        return f"{self.action}:{self.value}"
+
+    def summary(self) -> dict[str, Any]:
+        return {"rótulo": self.label, "ação": self.action, "valor": self.value, "estilo": self.style}
 
 
 class InboundMessage(BaseModel):
@@ -30,6 +114,7 @@ class InboundMessage(BaseModel):
     display_name: str = ""
     reply_to: str = ""        # para onde responder (Slack responde no canal)
     metadata: dict = Field(default_factory=dict)
+    attachments: list[InboundAttachment] = Field(default_factory=list)
 
     @property
     def binding_id(self) -> str:
@@ -120,9 +205,13 @@ class GatewayReply(BaseModel):
     denied: bool = False
     reason: str = ""
     command: str = ""
+    #: anexos de saída (arquivos do workspace conferidos antes de sair)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    #: botões: o canal desenha, o Gateway continua decidindo
+    choices: list[ReplyChoice] = Field(default_factory=list)
 
     def summary(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "texto": self.text,
             "canal": self.channel,
             "remetente": self.external_id,
@@ -131,6 +220,22 @@ class GatewayReply(BaseModel):
             "motivo": self.reason or "-",
             "comando": self.command or "-",
         }
+        if self.attachments:
+            payload["anexos"] = [
+                {"nome": item.get("name", "?"), "tamanho": item.get("size", 0)} for item in self.attachments
+            ]
+        if self.choices:
+            payload["botões"] = [choice.summary() for choice in self.choices]
+        return payload
 
 
-__all__ = ["ChannelBinding", "GatewayMessage", "GatewayReply", "InboundMessage"]
+__all__ = [
+    "Attachment",
+    "AttachmentStatus",
+    "ChannelBinding",
+    "GatewayMessage",
+    "GatewayReply",
+    "InboundAttachment",
+    "InboundMessage",
+    "ReplyChoice",
+]

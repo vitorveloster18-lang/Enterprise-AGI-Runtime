@@ -1,6 +1,8 @@
-# Roadmap — Fases 0 a 12
+# Roadmap — Fases 0 a 12 + Fase 13 (fechamento das lacunas)
 
-Situação em 2026-09: **Fases 0 a 12 implementadas e testadas** (401 testes).
+Situação em 2026-09: **Fases 0 a 12 implementadas e testadas** e **Fase 13 em andamento**
+(456 testes). A Fase 13 não é fase nova: é o fechamento das lacunas que o próprio
+roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_LACUNAS_FECHADAS.md).
 
 | Fase | Nome | Situação | Observação |
 |---|---|---|---|
@@ -14,7 +16,7 @@ Situação em 2026-09: **Fases 0 a 12 implementadas e testadas** (401 testes).
 | 6b | — | — | Fase 6 não cobre coordenação negociada entre agentes (handoff/leilão de tarefas) nem triggers de banco de dados |
 | 8b | — | — | Fase 8 não mede qualidade de **modelo** (só o encanamento), nem simula carga — laboratório de avaliação |
 | 9b | — | — | Fase 9 promove dentro do workspace e não tem assinatura criptográfica nem quórum de aprovação — evolução de política |
-| 10b | — | — | Fase 10 atende mensagem por mensagem (sem fila), não trata anexos/mídia nem botões interativos — anexos dependem de conector de arquivos (Fase 12) |
+| 10b | — | ✅ | anexos e mídia entrando por lista branca (`artifacts/inbox`, impressão digital, recusa com motivo) e botões que viram comando governado — fechado na Fase 13 |
 | 11b | — | — | catálogo de ERP/CRM/RH prontos entra com os Packs Verticais (Fase 12); fila de saída com retry/backoff também foi entregue na Fase 12 |
 | 6 | Orchestration | ✅ | execução como objeto auditado, DAG com condição/retry/compensação/tolerância, paralelismo por nível, retomada e cancelamento, scheduler cron idempotente, gatilho por evento e webhook |
 | 7 | Development Environment | ✅ | proposta verificada (AST) + prova em sandbox + aprovação humana; agentes criam agents/tools/workflows sem nunca aplicar |
@@ -23,6 +25,7 @@ Situação em 2026-09: **Fases 0 a 12 implementadas e testadas** (401 testes).
 | 10 | Remote Control | ✅ | gateway de canais: Telegram (polling/webhook), Slack (Events API assinada), Web (/chat) e terminal, com pareamento e RBAC |
 | 11 | Enterprise Integrations | ✅ | conectores declarados (REST/GraphQL/SQL/webhook): lista branca de host/método, credencial no cofre, política por operação, custo/latência/decisão registrados, eventos de entrada assinados e idempotentes |
 | 12 | Vertical Packs | ✅ | 7 packs (Finanças, Contabilidade, Vendas, Operações, RH, Marketing, Suporte) instalados por proposta aprovada + fila de saída com retry/backoff |
+| 13 | Fechamento das lacunas | 🟡 | 10b entregue (anexos e botões); 12b, 8b, 9b, 6b e 5b na fila |
 
 Legenda: ✅ concluído · 🟡 parcial (base pronta) · ⏳ não iniciado
 
@@ -32,6 +35,7 @@ Legenda: ✅ concluído · 🟡 parcial (base pronta) · ⏳ não iniciado
 [V1] Fases 0-6     Runtime validado executando trabalho real (0-6 feitas)
 [V2] Fases 7-11    Plataforma empresarial (console, RBAC, integrações, multi-agente)
 [V3] Fase 12       Empresa autônoma: o Runtime constrói e evolui automações
+[V4] Fase 13       Nenhuma promessa em aberto: as lacunas declaradas, fechadas
 ```
 
 ## Primeiro vertical de validação: contabilidade

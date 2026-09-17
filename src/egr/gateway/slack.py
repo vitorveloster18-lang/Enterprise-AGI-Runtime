@@ -13,7 +13,7 @@ import os
 import time
 from typing import Any
 
-from ..domain.channel import GatewayReply, InboundMessage
+from ..domain.channel import GatewayReply, InboundAttachment, InboundMessage
 from .channels import BaseChannel, Handler
 
 API = "https://slack.com/api"
@@ -82,7 +82,8 @@ class SlackChannel(BaseChannel):
         user = str(event.get("user") or "")
         channel_id = str(event.get("channel") or "")
         text = (event.get("text") or "").strip()
-        if not user or not text:
+        attachments = self.attachments_from(event)
+        if not user or (not text and not attachments):
             return None
         if channel_id:
             self._targets[user] = channel_id
@@ -95,10 +96,52 @@ class SlackChannel(BaseChannel):
                 display_name=str(event.get("username") or ""),
                 reply_to=channel_id,
                 metadata={"canal_slack": channel_id},
+                attachments=attachments,
             )
         )
-        self.send(user, reply.text)
+        self.deliver(user, reply)
         return reply
+
+    # ---- lacuna 10b: anexos ------------------------------------------
+    def attachments_from(self, event: dict) -> list[InboundAttachment]:
+        """Arquivos do Slack: descritos aqui, baixados só se o Runtime aceitar."""
+
+        files = event.get("files")
+        if not isinstance(files, list):
+            return []
+        found: list[InboundAttachment] = []
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            reference = str(item.get("url_private") or item.get("id") or "")
+            if not reference:
+                continue
+            found.append(
+                InboundAttachment(
+                    name=str(item.get("name") or item.get("title") or "arquivo"),
+                    mime=str(item.get("mimetype") or ""),
+                    size=int(item.get("size") or 0),
+                    remote_ref=reference,
+                    fetch=(lambda ref=reference: self.download(ref)),
+                )
+            )
+        return found
+
+    def download(self, reference: str) -> bytes:
+        """Baixa `url_private` com o token do bot (nunca sem ele)."""
+
+        if not self.token:
+            raise RuntimeError("token do slack não configurado")
+        client = self._client
+        if client is None:
+            import httpx
+
+            client = httpx
+        response = client.get(reference, headers={"Authorization": f"Bearer {self.token}"}, timeout=30.0)
+        content = response.content if hasattr(response, "content") else response
+        if isinstance(content, str):
+            content = content.encode()
+        return content
 
     # ---- saída --------------------------------------------------------
     def send(self, external_id: str, text: str, *, reply_to: str = "") -> dict:
@@ -115,6 +158,38 @@ class SlackChannel(BaseChannel):
             json={"channel": target, "text": text},
             headers={"Authorization": f"Bearer {self.token}"},
             timeout=15.0,
+        )
+        data = response.json()
+        return data if isinstance(data, dict) else {"ok": False, "error": "resposta inesperada"}
+
+    def send_attachment(
+        self,
+        external_id: str,
+        path: str,
+        *,
+        name: str = "",
+        mime: str = "",
+        reply_to: str = "",
+    ) -> dict:
+        from pathlib import Path
+
+        target = Path(path)
+        target_channel = reply_to or self._targets.get(external_id, "")
+        if not self.token or not target_channel:
+            return {"ok": False, "error": "token ou canal de destino ausente"}
+        if not target.exists():
+            return {"ok": False, "error": f"arquivo ausente: {path}"}
+        client = self._client
+        if client is None:
+            import httpx
+
+            client = httpx
+        response = client.post(
+            f"{API}/files.upload",
+            data={"channels": target_channel},
+            files={"file": (name or target.name, target.read_bytes(), mime or "application/octet-stream")},
+            headers={"Authorization": f"Bearer {self.token}"},
+            timeout=60.0,
         )
         data = response.json()
         return data if isinstance(data, dict) else {"ok": False, "error": "resposta inesperada"}

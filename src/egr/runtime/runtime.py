@@ -54,6 +54,7 @@ from ..storage.repositories import (
     ApprovalRepository,
     ArtifactRepository,
     ArtifactVersionRepository,
+    AttachmentRepository,
     ChangeProposalRepository,
     EnterpriseRepository,
     EvaluationRunRepository,
@@ -186,6 +187,8 @@ class Runtime:
         self.versions = ArtifactVersionRepository(self.db)
         self.gateway_bindings = GatewayBindingRepository(self.db)
         self.gateway_messages = GatewayMessageRepository(self.db)
+        # lacuna 10b: anexos que entraram por um canal
+        self.gateway_attachments = AttachmentRepository(self.db)
         # Fase 11: integrações (REST/GraphQL/SQL/webhook)
         self.integrations_repository = IntegrationRepository(self.db)
         self.integration_calls = IntegrationCallRepository(self.db)

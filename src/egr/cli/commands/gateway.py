@@ -272,4 +272,188 @@ def messages(
     )
 
 
+@app.command(name="attachments")
+def attachments(
+    channel: str | None = typer.Option(None, "--channel", "-c", help="filtra por canal"),
+    external_id: str | None = typer.Option(None, "--remetente", "-r"),
+    status: str | None = typer.Option(None, "--status", "-s", help="received | stored | rejected"),
+    limit: int = typer.Option(10, "--limit", "-l"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Arquivos que entraram pelos canais — aceitos e recusados."""
+
+    runtime = get_runtime(workspace)
+    rows = runtime.gateway_attachments.list(channel=channel, external_id=external_id, status=status, limit=limit)
+    if as_json:
+        json_output([item.summary() for item in rows])
+        return
+    if not rows:
+        info("nenhum anexo registrado")
+        return
+    table(
+        "Anexos",
+        ["quando", "canal", "remetente", "nome", "tamanho", "situação", "caminho"],
+        [
+            [
+                item.created_at.strftime("%d/%m %H:%M:%S"),
+                item.channel,
+                item.external_id,
+                item.name[:28],
+                f"{item.size} B",
+                str(item.status),
+                (item.path or item.reason)[:34],
+            ]
+            for item in rows
+        ],
+    )
+    stats = runtime.gateway_attachments.stats()
+    if stats:
+        kv("Por situação", stats)
+
+
+@app.command(name="attachment")
+def attachment(
+    attachment_id: str = typer.Argument(..., help="id do anexo"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Detalha um anexo: onde está, o que é e o que foi extraído."""
+
+    runtime = get_runtime(workspace)
+    item = runtime.gateway_attachments.get(attachment_id)
+    if item is None:
+        error(f"anexo não encontrado: {attachment_id}")
+        raise typer.Exit(code=1)
+    if as_json:
+        json_output({**item.summary(), "trecho": item.preview})
+        return
+    kv(
+        "Anexo",
+        {
+            "id": item.id,
+            "nome": item.name,
+            "tipo": item.mime or "-",
+            "tamanho": f"{item.size} B",
+            "caminho": item.path or "-",
+            "impressão": item.checksum or "-",
+            "situação": str(item.status),
+            "motivo": item.reason or "-",
+            "task": item.task_id or "-",
+            "remetente": f"{item.channel}:{item.external_id}",
+        },
+    )
+    if item.preview:
+        info("trecho redigido:")
+        for line in item.preview.splitlines()[:12]:
+            info(f"  {line}")
+
+
+@app.command(name="send-file")
+def send_file(
+    channel: str = typer.Argument(..., help="canal registrado"),
+    external_id: str = typer.Argument(..., help="destino"),
+    path: str = typer.Argument(..., help="arquivo do workspace (raízes liberadas na configuração)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Manda um arquivo do workspace pelo canal (saída conferida)."""
+
+    runtime = get_runtime(workspace)
+    prepared = runtime.channels.attachments.outbound(path)
+    if not prepared.get("ok"):
+        error(f"não enviado: {prepared.get('erro')}")
+        raise typer.Exit(code=1)
+    instance = runtime.channels.channel(channel)
+    if instance is None:
+        error(f"canal não registrado: {channel}")
+        raise typer.Exit(code=1)
+    result = instance.send_attachment(
+        external_id,
+        prepared["absolute"],
+        name=prepared["name"],
+        mime=prepared["mime"],
+    )
+    success(f"{prepared['name']} enviado para {channel}:{external_id} ({prepared['size']} B)")
+    if isinstance(result, dict) and result.get("ok") is False:
+        warning(str(result.get("error") or result.get("erro") or ""))
+
+
+@app.command(name="interact")
+def interact(
+    channel: str = typer.Argument(..., help="canal registrado"),
+    external_id: str = typer.Argument(..., help="remetente"),
+    action: str = typer.Argument(..., help="aprovar | recusar | repetir | ajuda"),
+    value: str = typer.Argument("", help="valor (id da aprovação, por exemplo)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Aperta um botão: a interação vira comando e passa pelo mesmo governo."""
+
+    runtime = get_runtime(workspace)
+    reply = runtime.channels.handle_interaction(channel, external_id, action, value)
+    if reply.denied:
+        warning(f"recusada ({reply.reason}): {reply.text}")
+        raise typer.Exit(code=1)
+    success(reply.text)
+
+
+@app.command(name="upload")
+def upload(
+    channel: str = typer.Argument(..., help="canal registrado"),
+    external_id: str = typer.Argument(..., help="remetente"),
+    file: Path = typer.Argument(..., help="arquivo a entregar pela fronteira governada"),
+    text: str = typer.Option("", "--text", "-t", help="mensagem que acompanha o arquivo"),
+    mime: str = typer.Option("", "--mime", "-m", help="tipo declarado (quando o arquivo não diz)"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Entrega um arquivo ao Gateway (tipo e tamanho conferidos antes de entrar)."""
+
+    from ...domain.channel import InboundAttachment, InboundMessage
+
+    runtime = get_runtime(workspace)
+    if not file.exists() or not file.is_file():
+        error(f"arquivo não encontrado: {file}")
+        raise typer.Exit(code=1)
+    content = file.read_bytes()
+    pending = InboundAttachment(
+        name=file.name, mime=mime, size=len(content), content=content, remote_ref="cli"
+    )
+    if text.strip():
+        reply = runtime.channels.handle_inbound(
+            InboundMessage(
+                channel=channel, external_id=external_id, text=text, attachments=[pending]
+            )
+        )
+        if as_json:
+            json_output(reply.summary())
+            return
+        if reply.denied:
+            warning(f"recusada ({reply.reason}): {reply.text}")
+            raise typer.Exit(code=1)
+        success(f"task {reply.task_id}" if reply.task_id else "processado")
+        for line in reply.text.splitlines():
+            info(line)
+        return
+
+    stored = runtime.channels.attachments.receive(channel, external_id, pending)
+    if as_json:
+        json_output(stored.summary())
+        return
+    if not stored.stored:
+        warning(f"recusado ({stored.reason}): {stored.name}")
+        raise typer.Exit(code=1)
+    kv(
+        "Anexo",
+        {
+            "id": stored.id,
+            "nome": stored.name,
+            "tipo": stored.mime or "-",
+            "tamanho": f"{stored.size} B",
+            "caminho": stored.path,
+            "impressão": stored.checksum[:16],
+            "situação": str(stored.status),
+        },
+    )
+
+
 __all__ = ["app"]

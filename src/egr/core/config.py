@@ -166,6 +166,8 @@ class ChannelConfig(BaseModel):
     allowed_chat_ids: list[str] = Field(default_factory=list)
     #: permite decidir aprovações por este canal (decisão é ato humano consciente)
     allow_decisions: bool = False
+    #: lacuna 10b: este canal aceita anexos (e oferece botões nas decisões)
+    allow_attachments: bool = True
     # telegram
     bot_token_env: str = "EGR_TELEGRAM_TOKEN"
     polling_timeout: int = 25
@@ -173,6 +175,49 @@ class ChannelConfig(BaseModel):
     signing_secret_env: str = "EGR_SLACK_SIGNING_SECRET"
     #: segredo opcional conferido no cabeçalho X-Telegram-Bot-Api-Secret-Token
     webhook_secret_env: str = ""
+
+
+class GatewayAttachmentsConfig(BaseModel):
+    """Lacuna 10b: anexo é conteúdo — entra por lista branca e fica no workspace.
+
+    Nada aqui é conveniência: tipo e tamanho são default deny (o que não está
+    na lista não entra), o inbox fica dentro do workspace (nunca em `/tmp` à
+    revelia) e a saída só lê de raízes declaradas.
+    """
+
+    enabled: bool = True
+    #: teto de bytes por arquivo (o canal recusa antes de baixar quando sabe)
+    max_bytes: int = 5 * 1024 * 1024
+    #: máximo de arquivos por mensagem (o excedente é recusado com motivo)
+    max_files: int = 3
+    #: tipos permitidos (vazio = libera tudo — desaconselhado)
+    allowed_mime: list[str] = Field(
+        default_factory=lambda: [
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/json",
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+        ]
+    )
+    #: extensões permitidas (conferidas junto com o tipo declarado)
+    allowed_extensions: list[str] = Field(
+        default_factory=lambda: [".txt", ".md", ".csv", ".json", ".pdf", ".png", ".jpg", ".jpeg", ".yml", ".yaml"]
+    )
+    #: diretório (relativo ao workspace) onde o anexo é guardado
+    inbox: str = "artifacts/inbox"
+    #: quanto do texto do arquivo vira contexto da task (0 = nenhum)
+    extract_chars: int = 2000
+    #: redigir o texto extraído antes de qualquer registro
+    redact: bool = True
+    #: enviar arquivos do workspace de volta pelo canal
+    outbound_enabled: bool = True
+    #: raízes (relativas ao workspace) que podem sair pelo canal
+    outbound_roots: list[str] = Field(default_factory=lambda: ["artifacts"])
+    #: teto de bytes na saída (evita vazar um dump inteiro pelo chat)
+    outbound_max_bytes: int = 2 * 1024 * 1024
 
 
 class GatewayConfig(BaseModel):
@@ -188,6 +233,8 @@ class GatewayConfig(BaseModel):
     rate_limit_per_minute: int = 10
     redact: bool = True
     channels: list[ChannelConfig] = Field(default_factory=list)
+    #: lacuna 10b: anexos e mídia (entrada governada, saída conferida)
+    attachments: GatewayAttachmentsConfig = Field(default_factory=GatewayAttachmentsConfig)
 
 
 class IntegrationQueueConfig(BaseModel):

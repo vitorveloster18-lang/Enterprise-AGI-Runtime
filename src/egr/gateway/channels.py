@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ..domain.channel import GatewayReply, InboundMessage
@@ -28,6 +29,32 @@ class BaseChannel:
     # ---- saída -------------------------------------------------------
     def send(self, external_id: str, text: str, *, reply_to: str = "") -> Any:  # pragma: no cover - interface
         raise NotImplementedError
+
+    def send_attachment(
+        self,
+        external_id: str,
+        path: str,
+        *,
+        name: str = "",
+        mime: str = "",
+        reply_to: str = "",
+    ) -> Any:  # pragma: no cover - interface
+        """Lacuna 10b: devolve um arquivo do workspace pelo canal."""
+
+        raise NotImplementedError
+
+    def deliver(self, external_id: str, reply: GatewayReply) -> None:
+        """Entrega texto e, se houver, os anexos que o Gateway liberou."""
+
+        if reply.text:
+            self.send(external_id, reply.text, reply_to=reply.reply_to if hasattr(reply, "reply_to") else "")
+        for item in reply.attachments:
+            self.send_attachment(
+                external_id,
+                item.get("absolute") or item.get("path", ""),
+                name=item.get("name", ""),
+                mime=item.get("mime", ""),
+            )
 
     # ---- entrada ------------------------------------------------------
     def poll_once(self, handler: Handler) -> int:
@@ -53,6 +80,24 @@ class WebChannel(BaseChannel):
         self.outbox.append(entry)
         return entry
 
+    def send_attachment(
+        self,
+        external_id: str,
+        path: str,
+        *,
+        name: str = "",
+        mime: str = "",
+        reply_to: str = "",
+    ) -> dict:
+        entry = {
+            "canal": self.name,
+            "remetente": external_id,
+            "texto": "",
+            "arquivo": {"nome": name or Path(path).name, "caminho": path, "tipo": mime or ""},
+        }
+        self.outbox.append(entry)
+        return entry
+
     def drain(self) -> list[dict[str, Any]]:
         pending, self.outbox = self.outbox, []
         return pending
@@ -70,6 +115,17 @@ class ConsoleChannel(BaseChannel):
 
     def send(self, external_id: str, text: str, *, reply_to: str = "") -> None:
         self._output(f"egr> {text}")
+
+    def send_attachment(
+        self,
+        external_id: str,
+        path: str,
+        *,
+        name: str = "",
+        mime: str = "",
+        reply_to: str = "",
+    ) -> None:
+        self._output(f"egr> [arquivo] {name or Path(path).name} — {path}")
 
     def poll_once(self, handler: Handler) -> int:
         try:
