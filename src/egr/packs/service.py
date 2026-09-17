@@ -158,13 +158,37 @@ class PackService:
             rationale=rationale or f"pack vertical {pack.title} {pack.version}",
         )
 
-    def materialize(self, pack: Pack, *, actor: str = "human:cli", proposal: str | None = None) -> InstalledPack:
-        """Escreve os artefatos, recarrega o Runtime e registra a instalação."""
+    def materialize(
+        self,
+        pack: Pack,
+        *,
+        actor: str = "human:cli",
+        proposal: str | None = None,
+        update: dict | None = None,
+    ) -> InstalledPack:
+        """Escreve os artefatos, recarrega o Runtime e registra a instalação.
+
+        Com `update` (plano de atualização de um pack já instalado), o arquivo
+        que foi **editado depois da instalação** é preservado por padrão —
+        sobrescrever exige `--overwrite` na proposta, porque apagar o ajuste de
+        alguém em silêncio é pior que conviver com uma versão antiga.
+        """
 
         import yaml
 
+        overwrite = set((update or {}).get("overwrite") or [])
         written: list[str] = []
         checksums: dict[str, str] = {}
+        preserved: list[str] = []
+
+        def may_write(relative: str) -> bool:
+            if not update:
+                return True
+            target = self.workspace / relative
+            if relative in overwrite:
+                return True
+            return not (target.exists() and relative in set(update.get("conflito") or []))
+
         for kind in ARTIFACT_KINDS:
             items = getattr(pack, kind)
             if not items:
@@ -176,26 +200,44 @@ class PackService:
                 if not item_id:
                     continue
                 target = self._path_for(kind, item_id)
+                relative = str(target.relative_to(self.workspace))
+                if not may_write(relative):
+                    preserved.append(relative)
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 payload = {key: value for key, value in item.items() if key != "origin"}
                 content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True, default_flow_style=False)
                 target.write_text(content, encoding="utf-8")
-                relative = str(target.relative_to(self.workspace))
                 written.append(relative)
                 checksums[relative] = hashlib.sha256(content.encode()).hexdigest()[:16]
 
         manifest = self.packs_dir / f"{pack.id}.yaml"
-        if manifest.exists():  # escrito pela aplicação da proposta (Fase 7)
-            relative = f"packs/{pack.id}.yaml"
+        relative = f"packs/{pack.id}.yaml"
+        if manifest.exists() and may_write(relative):  # escrito pela aplicação da proposta (Fase 7)
             written.append(relative)
             checksums[relative] = hashlib.sha256(manifest.read_text(encoding="utf-8").encode()).hexdigest()[:16]
+        elif manifest.exists():
+            preserved.append(relative)
 
         for name, content in pack.documents.items():
+            relative = f"documents/{name}"
+            if not may_write(relative):
+                preserved.append(relative)
+                continue
             target = self.workspace / "documents" / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
-            written.append(f"documents/{name}")
-            checksums[f"documents/{name}"] = hashlib.sha256(content.encode()).hexdigest()[:16]
+            written.append(relative)
+            checksums[relative] = hashlib.sha256(content.encode()).hexdigest()[:16]
+
+        previous = self.runtime.packs_repository.get(pack.id)
+        if previous is not None:
+            # arquivo preservado continua registrado com a impressão que tem hoje
+            for relative in preserved:
+                recorded = self._recorded_checksum(previous, relative)
+                if recorded:
+                    checksums[relative] = recorded
+                written.append(relative) if relative not in written else None
 
         self._reload(pack)
 
@@ -213,18 +255,97 @@ class PackService:
         )
         self.runtime.packs_repository.save(installed)
         self.runtime.audit.record(
-            EventType.PACK_INSTALLED,
+            EventType.PACK_UPDATED if previous is not None else EventType.PACK_INSTALLED,
             actor=actor,
             environment=self.runtime.settings.environment,
             payload={
                 "pack": pack.id,
                 "versão": pack.version,
+                "de": previous.version if previous else "-",
                 "impressão": installed.checksum,
                 "arquivos": len(written),
+                "preservados": preserved,
                 "proposta": proposal or "-",
             },
         )
         return installed
+
+    # ---- atualização (lacuna 12b) ----------------------------------------
+    def update_plan(self, pack_id: str) -> dict[str, Any]:
+        """Compara o instalado com o catálogo: o que entra, o que muda, o que conflita.
+
+        Três situações para cada arquivo do pack:
+
+        - `novo`: não existe no workspace — entra inteiro;
+        - `atualizável`: existe **exatamente** como o pack escreveu — pode
+          ser substituído sem perder trabalho de ninguém;
+        - `conflito`: existe com conteúdo diferente do registrado (alguém
+          editou) — só entra se a proposta disser `--overwrite`.
+        """
+
+        installed = self.runtime.packs_repository.get(pack_id)
+        if installed is None:
+            raise ConfigError(f"pack não instalado: {pack_id}")
+        pack = self.get(pack_id)
+        manifest = f"packs/{pack.id}.yaml"
+        novo: list[str] = []
+        atualizavel: list[str] = []
+        conflito: list[str] = []
+        for relative in self.plan(pack):
+            target = self.workspace / relative
+            recorded = self._recorded_checksum(installed, relative)
+            if not target.exists():
+                novo.append(relative)
+                continue
+            if relative == manifest:
+                # o manifesto é o alvo da própria proposta: ele é a atualização
+                atualizavel.append(relative)
+                continue
+            try:
+                current = hashlib.sha256(target.read_text(encoding="utf-8").encode()).hexdigest()[:16]
+            except (OSError, UnicodeDecodeError):
+                conflito.append(relative)
+                continue
+            if recorded and current == recorded:
+                atualizavel.append(relative)
+            else:
+                conflito.append(relative)
+        return {
+            "pack": pack.id,
+            "de": installed.version,
+            "para": pack.version,
+            "novo": novo,
+            "atualizável": atualizavel,
+            "conflito": conflito,
+            # mesma versão, nada novo e nada editado: não há atualização, há reescrita
+            "idêntico": installed.version == pack.version and not novo and not conflito,
+        }
+
+    def update(
+        self,
+        pack_id: str,
+        *,
+        actor: str = "human:cli",
+        rationale: str = "",
+        overwrite: bool = False,
+    ) -> Any:
+        """Atualiza por proposta — e diz em voz alta o que foi editado por aqui."""
+
+        plan = self.update_plan(pack_id)
+        if plan["idêntico"]:
+            raise ConfigError(f"pack '{pack_id}' já está na versão {plan['para']} e não há nada a atualizar")
+        proposal = self.propose(
+            pack_id,
+            actor=actor,
+            rationale=rationale or f"atualização {plan['de']} → {plan['para']}",
+        )
+        proposal.metadata["pack_update"] = {
+            **plan,
+            "overwrite": list(plan["conflito"]) if overwrite else [],
+            "sobrescrever": bool(overwrite),
+        }
+        self.runtime.proposals.save(proposal)
+        return proposal
 
     def remove(self, pack_id: str, *, actor: str = "human:cli") -> dict[str, Any]:
         """Remove o que o pack escreveu — e só o que não foi mexido depois."""

@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 456 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída e anexos/botões dos canais) |
+| Testes | `tests/` | 480 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 
@@ -421,6 +421,10 @@ egr gateway upload web demo ./entrada.txt --text "classifique este anexo"
 egr gateway attachments | attachment <id>          # aceitos e recusados
 egr gateway send-file web demo artifacts/relatorio.md
 egr gateway interact web demo aprovar apr_123      # botão = comando
+
+egr integration worker --interval 30               # drena a fila em background
+egr pack update finance                            # plano: novo/atualizável/conflito
+egr pack update finance --overwrite                # sobrescreve o editado no workspace
 ```
 
 Arquivo de chat é **conteúdo**, não anexo decorativo: tipo e tamanho por lista
@@ -430,6 +434,13 @@ estiver nas raízes liberadas — e com teto de tamanho.
 
 Botão não executa: ele repete um comando (`aprovar` → `/aprovar <id>`) e passa
 pelo mesmo pareamento, RBAC, política e auditoria.
+
+Duas lacunas da Fase 12 também fechadas aqui: o **worker da fila**
+(`egr integration worker`) é o processo explícito que drena o que já venceu —
+com espera crescente quando a fila está parada e parada limpa por sinal; e
+`egr pack update` atualiza um pack preservando, por padrão, todo arquivo que
+foi editado no workspace (o plano diz o que é novo, o que muda e onde está o
+conflito).
 
 ## 6.1 Custo e orçamento (Fase 2)
 

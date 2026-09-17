@@ -126,6 +126,7 @@ class EventType(BaseStrEnum):
     INTEGRATION_JOB_QUEUED = "integration.job_queued"
     INTEGRATION_JOB_FAILED = "integration.job_failed"
     PACK_INSTALLED = "pack.installed"
+    PACK_UPDATED = "pack.updated"
     PACK_REMOVED = "pack.removed"
     PACK_DENIED = "pack.denied"
     # lacuna 10b: anexo é conteúdo governado; botão é atalho para um comando

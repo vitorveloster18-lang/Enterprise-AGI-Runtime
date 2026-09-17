@@ -849,3 +849,43 @@ pareamento, mesmo RBAC, mesma política, mesma trilha. Ações fora do mapa
 **Consequências:** aprovar pelo celular é tão governado quanto aprovar pelo
 console; o custo é que o botão não faz nada que o comando não faça — inclusive
 quando o comando é negado.
+
+---
+
+## ADR-049 · Worker da fila é processo explícito, não daemon invisível
+
+**Status:** aceita (Fase 13, lacuna 12b).
+
+**Contexto:** a fila de saída sobrevive ao 503, mas só avança quando alguém
+chama `drain`. Um daemon automático dentro do Runtime resolveria isso — e
+criaria um caminho de execução que ninguém vê, nem escolhe onde roda, nem
+desliga sem matar o processo.
+
+**Decisão:** o `QueueWorker` é um laço explícito (`egr integration worker`), com
+intervalo declarado, espera crescente quando a fila está parada (com teto),
+relatório por rodada e parada limpa por sinal. Ele chama o mesmo `drain()` do
+CLI e da API — nenhuma regra nova, nenhum atalho.
+
+**Consequências:** onde o worker roda é decisão de operação (terminal, systemd,
+container), e o Runtime continua sem thread escondida; o custo é que, sem o
+worker rodando, a fila não anda sozinha — o que é honesto, não é defeito.
+
+---
+
+## ADR-050 · Atualizar pack preserva o que foi editado no workspace
+
+**Status:** aceita (Fase 13, lacuna 12b).
+
+**Contexto:** um pack instalado vira arquivo do workspace, e arquivo do
+workspace é editado por gente. Atualizar o pack sobrescrevendo apaga trabalho
+em silêncio; recusar a atualização deixa a empresa presa numa versão velha.
+
+**Decisão:** `pack update` classifica cada arquivo em `novo`, `atualizável` ou
+`conflito` comparando o conteúdo atual com a impressão registrada na instalação.
+Conflito (arquivo editado aqui) é **preservado por padrão** e dito em voz alta;
+sobrescrever exige `--overwrite` na proposta. O manifesto é sempre escrito. O
+arquivo preservado continua no registro, com a impressão que tem hoje.
+
+**Consequências:** ninguém perde ajuste local numa atualização, e a decisão de
+descartá-lo é explícita e aprovada; o custo é conviver com divergência declarada
+até alguém resolver o diff — divergência dita é melhor que trabalho perdido.

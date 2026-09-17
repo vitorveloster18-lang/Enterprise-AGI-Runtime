@@ -101,3 +101,58 @@ botão "Aprovar apr_123"  →  handle_interaction(..., "aprovar", "apr_123")
 - nenhum OCR, transcrição ou vision: conteúdo binário é **guardado**, não lido;
 - o Runtime não interpreta o arquivo; quem lê é a task, pelas ferramentas;
 - anexo grande continua fora (limite é configuração, não boa vontade).
+
+---
+
+## 2. Lacuna 12b — fila com alguém olhando e pack que evolui sem atropelar
+
+**O problema:** restavam duas promessas em aberto da Fase 12 — a fila de saída
+tinha `drain` (uma rodada), mas ninguém para ficar chamando; e atualizar um pack
+instalado não tinha caminho: ou sobrescrevia o que alguém editou, ou travava.
+
+### 2.1 Dreno em background (`QueueWorker`)
+
+O worker **não é um daemon escondido dentro do Runtime**: é um laço explícito,
+com intervalo declarado, parada limpa e relatório do que fez.
+
+```bash
+egr integration worker --interval 30        # olha a fila a cada 30s
+egr integration worker --rounds 1           # uma rodada e sai (serve para cron)
+egr integration worker --batch 5            # no máximo 5 jobs por rodada
+```
+
+| Comportamento | Regra |
+|---|---|
+| fila vazia | espera cresce (intervalo → dobro → teto de 300s): fila parada não martela o banco |
+| fila com trabalho | volta ao intervalo base imediatamente |
+| provedor fora do ar | o erro vira relatório da rodada; o laço continua |
+| fila desabilitada | o worker avisa e encerra (não fica rodando à toa) |
+| Ctrl+C / SIGTERM | encerra no fim da rodada, não no meio de um job |
+
+Cada rodada chama o mesmo `ConnectorService.drain()`: mesma janela de espera,
+mesma política `integration.call`, mesma auditoria. O worker só repete o que já
+era governado — ele não ganha nenhum atalho.
+
+### 2.2 Atualização de pack com conteúdo editado
+
+`egr pack update <id>` compara o instalado com o catálogo e classifica **cada
+arquivo**:
+
+| Situação | Critério | O que acontece |
+|---|---|---|
+| `novo` | o arquivo não existe no workspace | entra inteiro |
+| `atualizável` | existe **exatamente** como o pack escreveu | é substituído sem perder nada |
+| `conflito` | existe com conteúdo diferente do registrado (alguém editou) | **preservado** por padrão; só entra com `--overwrite` |
+
+O plano viaja dentro da proposta (`metadata.pack_update`) e é honrado na
+aplicação. O manifesto (`packs/<id>.yaml`) é sempre atualizado: ele é o alvo da
+própria proposta, não um arquivo qualquer.
+
+A atualização continua sendo **proposta → aprovação → aplicação** (Fase 7), e
+gera o evento `pack.updated` com `de`, `para` e a lista de `preservados`.
+Preservar não é esquecer: o arquivo mantido continua registrado no
+`InstalledPack`, com a impressão digital que ele tem agora.
+
+**O que continua fora:** migração de conteúdo (reescrever o arquivo do pack
+mantendo o ajuste local) e resolução de conflito interativa — o Runtime diz
+onde está o conflito; quem resolve é o humano, pelo diff.

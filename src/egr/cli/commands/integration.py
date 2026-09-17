@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import typer
@@ -433,6 +434,54 @@ def events(
             ]
             for event in rows
         ],
+    )
+
+
+@app.command(name="worker")
+def worker(
+    interval: float = typer.Option(30.0, "--interval", "-i", help="segundos entre rodadas"),
+    rounds: int = typer.Option(0, "--rounds", "-n", help="encerra depois de N rodadas (0 = sem fim)"),
+    batch: int = typer.Option(0, "--batch", help="jobs por rodada (0 = da configuração)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Fica olhando a fila e drena o que já venceu (Ctrl+C encerra)."""
+
+    import signal
+
+    from ...integrations.worker import QueueWorker
+
+    runtime = get_runtime(workspace)
+    if not runtime.settings.config.integrations.queue.enabled:
+        warning("fila desabilitada em egr.yaml (integrations.queue.enabled)")
+        raise typer.Exit(code=1)
+
+    instance = QueueWorker(
+        runtime,
+        interval=interval,
+        batch=batch or None,
+        logger=lambda message: info(message),
+    )
+
+    def stop() -> bool:
+        return instance.stopped
+
+    def finish(signum, frame):  # encerra no fim da rodada, não no meio do job
+        instance.stop()
+
+    for signal_name in ("SIGINT", "SIGTERM"):
+        with contextlib.suppress(AttributeError, ValueError):
+            signal.signal(getattr(signal, signal_name), finish)
+
+    info(f"drenando a cada {interval:.0f}s (Ctrl+C encerra)")
+    summary = instance.run(max_rounds=rounds, stop=stop)
+    kv(
+        "Fila",
+        {
+            "rodadas": summary["rodadas"],
+            "processados": summary["processados"],
+            "intervalo": f"{summary['intervalo']:.0f}s",
+            "encerrado": "sim" if summary["parado"] else "não",
+        },
     )
 
 

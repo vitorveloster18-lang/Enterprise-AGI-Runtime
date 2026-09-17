@@ -444,7 +444,11 @@ class Workbench:
         packs = getattr(runtime, "packs", None)
         if packs is None:
             raise ConfigError("serviço de packs indisponível neste Runtime")
-        packs.materialize(pack, actor=proposal.decided_by or "human:cli", proposal=proposal.id)
+        # lacuna 12b: plano de atualização decide o que pode sobrescrever
+        update = dict(proposal.metadata or {}).get("pack_update")
+        packs.materialize(
+            pack, actor=proposal.decided_by or "human:cli", proposal=proposal.id, update=update
+        )
 
     def _reload_tools_for(self, environment: Environment) -> None:
         runtime = self.runtime

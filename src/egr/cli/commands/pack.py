@@ -253,4 +253,52 @@ def remove(
         warning(f"mantido (foi alterado depois da instalação): {nome}")
 
 
+@app.command(name="update")
+def update(
+    pack: str = typer.Argument(..., help="id do pack instalado"),
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="sobrescreve também os arquivos editados no workspace"
+    ),
+    by: str = typer.Option("human:cli", "--by", "-b"),
+    rationale: str = typer.Option("", "--rationale", "-r"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Atualiza um pack por proposta — preservando o que foi editado aqui."""
+
+    runtime = get_runtime(workspace)
+    try:
+        plan = runtime.packs.update_plan(pack)
+    except Exception as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    empty = plan["idêntico"] or not (plan["novo"] or plan["atualizável"] or plan["conflito"])
+    proposal = None
+    if not empty:
+        try:
+            proposal = runtime.packs.update(pack, actor=by, rationale=rationale, overwrite=overwrite)
+        except Exception as exc:
+            error(str(exc))
+            raise typer.Exit(code=1) from exc
+
+    if as_json:
+        json_output({"plano": plan, "proposta": proposal.summary() if proposal else None})
+        return
+
+    table(
+        f"Atualização — {plan['pack']} ({plan['de']} → {plan['para']})",
+        ["situação", "arquivos"],
+        [["novo", len(plan["novo"])], ["atualizável", len(plan["atualizável"])], ["conflito", len(plan["conflito"])]],
+    )
+    for relative in plan["conflito"]:
+        warning(f"editado no workspace: {relative} (será preservado)" + (" — será sobrescrito" if overwrite else ""))
+    if empty or proposal is None:
+        info("nada a atualizar")
+        return
+    success(f"proposta {proposal.id} criada ({proposal.status})")
+    info(f"aprovar: egr proposal approve {proposal.id} --by {by}")
+    info(f"aplicar: egr proposal apply {proposal.id} --by {by}")
+
+
 __all__ = ["app"]

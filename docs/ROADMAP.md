@@ -18,6 +18,7 @@ roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_L
 | 9b | — | — | Fase 9 promove dentro do workspace e não tem assinatura criptográfica nem quórum de aprovação — evolução de política |
 | 10b | — | ✅ | anexos e mídia entrando por lista branca (`artifacts/inbox`, impressão digital, recusa com motivo) e botões que viram comando governado — fechado na Fase 13 |
 | 11b | — | — | catálogo de ERP/CRM/RH prontos entra com os Packs Verticais (Fase 12); fila de saída com retry/backoff também foi entregue na Fase 12 |
+| 12b | — | ✅ | dreno da fila em processo explícito (`egr integration worker`) e atualização de pack que preserva o que foi editado — fechado na Fase 13 |
 | 6 | Orchestration | ✅ | execução como objeto auditado, DAG com condição/retry/compensação/tolerância, paralelismo por nível, retomada e cancelamento, scheduler cron idempotente, gatilho por evento e webhook |
 | 7 | Development Environment | ✅ | proposta verificada (AST) + prova em sandbox + aprovação humana; agentes criam agents/tools/workflows sem nunca aplicar |
 | 8 | Evaluation | ✅ | suítes com casos medidos, métricas (acerto/custo/p95), limites, baseline e regressão, varredura de segurança do artefato |
@@ -25,7 +26,7 @@ roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_L
 | 10 | Remote Control | ✅ | gateway de canais: Telegram (polling/webhook), Slack (Events API assinada), Web (/chat) e terminal, com pareamento e RBAC |
 | 11 | Enterprise Integrations | ✅ | conectores declarados (REST/GraphQL/SQL/webhook): lista branca de host/método, credencial no cofre, política por operação, custo/latência/decisão registrados, eventos de entrada assinados e idempotentes |
 | 12 | Vertical Packs | ✅ | 7 packs (Finanças, Contabilidade, Vendas, Operações, RH, Marketing, Suporte) instalados por proposta aprovada + fila de saída com retry/backoff |
-| 13 | Fechamento das lacunas | 🟡 | 10b entregue (anexos e botões); 12b, 8b, 9b, 6b e 5b na fila |
+| 13 | Fechamento das lacunas | 🟡 | 10b e 12b entregues (anexos/botões; worker da fila e atualização de pack); 8b, 9b, 6b e 5b na fila |
 
 Legenda: ✅ concluído · 🟡 parcial (base pronta) · ⏳ não iniciado
 
