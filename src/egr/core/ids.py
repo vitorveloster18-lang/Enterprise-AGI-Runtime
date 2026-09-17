@@ -26,6 +26,8 @@ PREFIXES = {
     "run": "run",
     "extension": "ext",
     "proposal": "prp",
+    "evaluation": "eva",
+    "suite": "sut",
 }
 
 

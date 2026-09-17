@@ -95,6 +95,7 @@ try:
         "output": getattr(result, "output", None),
         "error": getattr(result, "error", None),
         "tool": getattr(getattr(chosen, "spec", None), "name", TOOL),
+        "cost": float(getattr(result, "cost", 0.0) or 0.0),
         "artifacts": list(getattr(result, "artifacts", []) or [])[:5],
     }}, ensure_ascii=False, default=str)[:{MAX_OUTPUT_CHARS}])
 except BaseException:  # noqa: BLE001 - o relatório precisa do erro, seja ele qual for
@@ -149,6 +150,7 @@ def run_trial(
             exit_code=result.exit_code,
             output=payload.get("output"),
             error=payload.get("error") or result.error or (result.stderr[-2000:] if not payload else None),
+            cost=float(payload.get("cost") or 0.0),
             stdout=result.stdout[-2000:],
             stderr=result.stderr[-2000:],
             files=files,

@@ -14,6 +14,7 @@ from ..domain.agent import AgentSpec
 from ..domain.approval import Approval
 from ..domain.artifact import Artifact
 from ..domain.enterprise import Enterprise
+from ..domain.evaluation import EvaluationRun, EvaluationSuite
 from ..domain.memory import MemoryRecord
 from ..domain.policy import Policy
 from ..domain.proposal import ChangeProposal
@@ -827,3 +828,125 @@ class ChangeProposalRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM change_proposals") or 0)
+
+
+class EvaluationSuiteRepository:
+    """Fase 8: suítes declaradas (YAML) espelhadas para consulta e histórico."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, suite: EvaluationSuite) -> EvaluationSuite:
+        suite.updated_at = utcnow()
+        self.db.execute(
+            "INSERT INTO evaluation_suites (id, target_kind, target, data, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET data = excluded.data, target = excluded.target, "
+            "target_kind = excluded.target_kind, updated_at = excluded.updated_at",
+            (
+                suite.id,
+                str(suite.target_kind),
+                suite.target,
+                _dump(suite),
+                iso(suite.created_at),
+                iso(suite.updated_at),
+            ),
+        )
+        self.db.commit()
+        return suite
+
+    def get(self, suite_id: str) -> EvaluationSuite | None:
+        row = self.db.query_one("SELECT * FROM evaluation_suites WHERE id = ?", (suite_id,))
+        return _load(row, EvaluationSuite) if row else None
+
+    def list(
+        self, target_kind: str | None = None, target: str | None = None, limit: int = 50
+    ) -> list[EvaluationSuite]:
+        clauses, params = [], []
+        if target_kind:
+            clauses.append("target_kind = ?")
+            params.append(str(target_kind))
+        if target:
+            clauses.append("target = ?")
+            params.append(target)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM evaluation_suites {where} ORDER BY updated_at DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, EvaluationSuite) for row in rows]
+
+    def delete(self, suite_id: str) -> bool:
+        self.db.execute("DELETE FROM evaluation_suites WHERE id = ?", (suite_id,))
+        self.db.commit()
+        return True
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM evaluation_suites") or 0)
+
+
+class EvaluationRunRepository:
+    """Cada execução medida — a memória numérica do que já foi provado."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, run: EvaluationRun) -> EvaluationRun:
+        self.db.execute(
+            "INSERT INTO evaluation_runs (id, suite_id, target_kind, target, status, environment, data, "
+            "created_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data, "
+            "finished_at = excluded.finished_at",
+            (
+                run.id,
+                run.suite_id,
+                str(run.target_kind),
+                run.target,
+                str(run.status),
+                str(run.environment),
+                _dump(run),
+                iso(run.created_at),
+                iso(run.finished_at) if run.finished_at else None,
+            ),
+        )
+        self.db.commit()
+        return run
+
+    def get(self, run_id: str) -> EvaluationRun | None:
+        row = self.db.query_one("SELECT * FROM evaluation_runs WHERE id = ?", (run_id,))
+        return _load(row, EvaluationRun) if row else None
+
+    def list(
+        self,
+        suite_id: str | None = None,
+        status: str | None = None,
+        target: str | None = None,
+        limit: int = 20,
+    ) -> list[EvaluationRun]:
+        clauses, params = [], []
+        if suite_id:
+            clauses.append("suite_id = ?")
+            params.append(suite_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(str(status))
+        if target:
+            clauses.append("target = ?")
+            params.append(target)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM evaluation_runs {where} ORDER BY created_at DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, EvaluationRun) for row in rows]
+
+    def last(self, suite_id: str, status: str | None = None) -> EvaluationRun | None:
+        rows = self.list(suite_id=suite_id, status=status, limit=1)
+        return rows[0] if rows else None
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM evaluation_runs GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM evaluation_runs") or 0)

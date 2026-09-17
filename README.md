@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 7 implementadas** (V1: Foundation → Orchestration; V2 começando pelo Development Environment) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 8 implementadas** (V1: Foundation → Orchestration; V2: Development Environment e Evaluation) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 167 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox) |
+| Testes | `tests/` | 192 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão) |
 
 ## 6. Comandos principais
 
@@ -314,6 +314,33 @@ namespace) e provado em diretório descartável antes de alguém assinar.
 Agente não concede a outro mais do que ele mesmo tem (escalada por procuração
 fechada).
 
+## 5.6 Evaluation (Fase 8)
+
+```bash
+egr eval smoke tool venda.preco      # suíte mínima gerada da declaração
+egr eval run venda.preco             # casos, métricas, limites e veredito
+egr eval runs | show <run>           # histórico medido
+egr eval baseline <run>              # promove uma execução a referência
+egr eval security agent finance-agent
+```
+
+```yaml
+cases:
+  - id: com-desconto
+    args: {quantidade: 2, unitario: 50, desconto: 10}
+    expect_ok: true
+    expect: ["output['total'] == 90.0"]
+thresholds:
+  min_pass_rate: 1.0
+  max_p95_duration_ms: 3000
+  max_regressions: 0
+```
+
+Métricas (acerto, custo, p95) comparadas contra uma **baseline explícita**:
+caso que passava e passou a falhar é regressão declarada, não lembrança.
+Achado crítico de segurança reprova a execução **mesmo com todos os casos
+passando** — prova funcional não compra imunidade de governo.
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -377,6 +404,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE5_MEMORY_SYSTEM.md`](docs/PHASE5_MEMORY_SYSTEM.md) — Fase 5 (memória semântica, recuperação híbrida, ciclo de vida)
 - [`docs/PHASE6_ORCHESTRATION.md`](docs/PHASE6_ORCHESTRATION.md) — Fase 6 (DAG, retry, compensação, agenda, webhooks)
 - [`docs/PHASE7_DEV_ENVIRONMENT.md`](docs/PHASE7_DEV_ENVIRONMENT.md) — Fase 7 (proposta verificada, prova em sandbox, aprovação humana)
+- [`docs/PHASE8_EVALUATION.md`](docs/PHASE8_EVALUATION.md) — Fase 8 (suítes, métricas, baseline, regressão, segurança)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

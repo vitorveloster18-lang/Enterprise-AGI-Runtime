@@ -96,6 +96,19 @@ def load_tool_dir(
     return ToolLoadReport(loaded, rejected)
 
 
+def find_tool_source(workspace: Path, tool_name: str) -> tuple[Path, str] | None:
+    """Onde está o código de uma ferramenta do workspace (ou None se for builtin)."""
+
+    directory = Path(workspace) / "tools"
+    if not directory.exists():
+        return None
+    for path in sorted(directory.glob("*.py")):
+        content = path.read_text(encoding="utf-8")
+        if f'name="{tool_name}"' in content or f"name='{tool_name}'" in content:
+            return path, content
+    return None
+
+
 def _import_tools(path: Path) -> list[Tool]:
     module_name = f"egr_workspace_tool_{path.stem}"
     spec = importlib.util.spec_from_file_location(module_name, path)
@@ -115,4 +128,4 @@ def _import_tools(path: Path) -> list[Tool]:
     return tools
 
 
-__all__ = ["ToolLoadReport", "load_tool_dir"]
+__all__ = ["ToolLoadReport", "find_tool_source", "load_tool_dir"]

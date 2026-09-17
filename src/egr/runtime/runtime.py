@@ -26,8 +26,11 @@ from ..domain.enums import (
     RiskLevel,
     TaskStatus,
 )
+from ..domain.evaluation import EvaluationSuite
 from ..domain.task import StepRecord, Task, TaskResult
 from ..domain.tool import ToolRequest
+from ..evaluation.loader import load_suite_dir
+from ..evaluation.runner import EvaluationRunner
 from ..memory import MemoryService
 from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
@@ -45,6 +48,8 @@ from ..storage.repositories import (
     ArtifactRepository,
     ChangeProposalRepository,
     EnterpriseRepository,
+    EvaluationRunRepository,
+    EvaluationSuiteRepository,
     IdentityRepository,
     KeyRepository,
     MemoryRepository,
@@ -159,6 +164,8 @@ class Runtime:
         # ---- orquestração (Fase 6) ----------------------------------
         self.runs = WorkflowRunRepository(self.db)
         self.proposals = ChangeProposalRepository(self.db)
+        self.suites = EvaluationSuiteRepository(self.db)
+        self.evaluations = EvaluationRunRepository(self.db)
 
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
@@ -188,6 +195,8 @@ class Runtime:
         self.task_engine = TaskEngine(self)
         self.orchestrator = WorkflowEngine(self)
         self.workbench = Workbench(self)
+        self.evaluator = EvaluationRunner(self)
+        self.evaluation_suites = self._load_suites()
         self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
@@ -334,6 +343,20 @@ class Runtime:
             environment=str(self.settings.environment),
         )
         return runner.describe()
+
+    def _load_suites(self) -> dict[str, EvaluationSuite]:
+        """Suítes do workspace: registradas (banco) + declaradas em `evaluations/*.yaml`.
+
+        O YAML versionado tem a palavra final: se existir, ele sobrepõe o que
+        foi registrado por CLI/API. Assim a suíte que o time revisa no
+        repositório é a que vale.
+        """
+
+        suites: dict[str, EvaluationSuite] = {suite.id: suite for suite in self.suites.list()}
+        for suite in load_suite_dir(self.settings.workspace / "evaluations"):
+            self.suites.save(suite)
+            suites[suite.id] = suite
+        return suites
 
     def _load_workspace_tools(self) -> list[dict]:
         """Ferramentas criadas por proposta aprovada (`tools/*.py`).
@@ -718,6 +741,27 @@ class Runtime:
             },
         }
 
+    def evaluation_status(self) -> dict[str, Any]:
+        """Raio-X da avaliação: suítes, últimos vereditos, custo e latência."""
+
+        runs = self.evaluations.list(limit=200)
+        last_by_suite: dict[str, dict] = {}
+        for run in runs:
+            last_by_suite.setdefault(run.suite_id, run.summary())
+        return {
+            "suites": {
+                "total": len(self.evaluation_suites),
+                "stored": self.suites.count(),
+                "items": [suite.summary() for suite in self.evaluation_suites.values()],
+            },
+            "runs": {
+                "total": self.evaluations.count(),
+                "by_status": self.evaluations.stats(),
+                "last_by_suite": last_by_suite,
+                "recent": [run.summary() for run in runs[:5]],
+            },
+        }
+
     def dev_status(self) -> dict[str, Any]:
         """Raio-X do ambiente de desenvolvimento: o que foi proposto e por quem."""
 
@@ -838,6 +882,7 @@ class Runtime:
             "memory": self.memory.stats(),
             "orchestration": self.orchestration_status(),
             "development": self.dev_status(),
+            "evaluation": self.evaluation_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -961,6 +1006,27 @@ class Runtime:
             )
         for name, report in self.gateway.health().items():
             add(f"model:{name}", report["healthy"], report["detail"])
+        evaluation = self.evaluation_status()
+        add(
+            "evaluation",
+            evaluation["suites"]["total"] > 0,
+            f"{evaluation['suites']['total']} suíte(s), "
+            f"{evaluation['runs']['total']} execução(ões), "
+            f"vereditos: {', '.join(f'{k}={v}' for k, v in sorted(evaluation['runs']['by_status'].items())) or '-'}",
+        )
+        for suite_id, summary in evaluation["runs"]["last_by_suite"].items():
+            if summary["status"] in ("failed", "regressed", "error"):
+                checks.append(
+                    {
+                        "check": f"avaliacao:{suite_id}",
+                        "ok": False,
+                        "detail": (
+                            f"{summary['status']}: "
+                            f"{'; '.join(summary['reasons'][:2]) or 'sem motivo registrado'}"
+                        ),
+                    }
+                )
+
         dev = self.dev_status()
         add(
             "development",

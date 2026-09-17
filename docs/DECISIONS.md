@@ -495,3 +495,62 @@ livre.
 **Consequências:** o conjunto de permissões do sistema só cresce por decisão
 humana. Agente que tenta escalar vê a proposta **falhar na verificação**, com o
 motivo listado, em vez de ser negado em silêncio.
+
+---
+
+## ADR-030 · Qualidade é medida, não declarada: avaliação como objeto auditado
+
+**Status:** aceita (Fase 8).
+
+**Contexto:** "está funcionando" é a frase mais cara da automação — ela costuma
+significar "rodou uma vez e ninguém reclamou". Sem execução registrada, comparar
+duas versões de um artefato é opinião.
+
+**Decisão:** avaliação é um objeto (`EvaluationSuite` → `EvaluationRun`) com
+casos, expectativas em gramática segura (a mesma das condições de política, sem
+`eval`), métricas (acerto, custo, latência p95) e limites declarados por suíte.
+Cada alvo executa de verdade: ferramenta no sandbox, workflow como run,
+agente como task, política como decisão do Policy Engine.
+
+**Consequências:** "piorou" passa a ser uma afirmação com números. O custo é
+execução real — por isso a suíte mínima é derivada da declaração e o resto é
+escrito por quem conhece o domínio.
+
+---
+
+## ADR-031 · Regressão se mede contra baseline explícita, não contra memória
+
+**Status:** aceita (Fase 8).
+
+**Contexto:** detectar regressão exige comparar com algo. Comparar com "a última
+vez" é frágil (a última pode já estar ruim); comparar com "o que eu lembro" não
+existe.
+
+**Decisão:** toda execução é comparada com a **última execução aprovada** da
+mesma suíte, ou com uma baseline escolhida explicitamente (`egr eval baseline`).
+O relatório separa casos que pioraram, casos que melhoraram e deriva de latência
+acima de um percentual tolerado. Quando há regressão, o veredito é `regressed` —
+mais específico que `failed` — mantendo os motivos de limite na lista.
+
+**Consequências:** a referência é um objeto nomeado, não uma lembrança; promover
+baseline é um ato explícito e auditado, e suíte sem baseline simplesmente não
+afirma nada sobre o passado.
+
+---
+
+## ADR-032 · Achado crítico de segurança reprova mesmo com os casos passando
+
+**Status:** aceita (Fase 8).
+
+**Contexto:** um agente com `permissions.tools: ["*"]` pode passar em todos os
+casos de uma suíte funcional — a suíte mede o comportamento pedido, não o
+comportamento possível.
+
+**Decisão:** a execução carrega uma varredura de segurança do alvo (permissões
+largas, ausência de objetivo, ferramenta sem política, regra que libera tudo,
+grafo inválido). Achado `critical` reprova a execução independentemente da taxa
+de acerto, e gera evento `eval.security_finding`.
+
+**Consequências:** prova funcional não compra imunidade de governo. O veredito
+junta as duas perguntas que o Runtime precisa responder: *faz o que promete?* e
+*não pode mais do que promete?*

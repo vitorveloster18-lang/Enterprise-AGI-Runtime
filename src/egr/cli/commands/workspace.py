@@ -141,7 +141,8 @@ def init(
     info(f"{len(created)} arquivo(s) gravados em {workspace}")
 
     runtime = Runtime.load(workspace)
-    synced = runtime.sync_agents()
+    counts = runtime.sync_all()  # agentes + políticas do YAML entram no Runtime
+    synced = list(runtime.agents.values())
     runtime.audit.record(
         "system.event",
         actor="cli",
@@ -152,6 +153,7 @@ def init(
         f"enterprise : {runtime.settings.enterprise.id}",
         f"ambiente   : {runtime.settings.environment}",
         f"agentes    : {', '.join(agent.id for agent in synced) or 'default'}",
+        f"workflows  : {counts['workflows']}",
         f"ferramentas: {len(runtime.tools.list())}",
         f"politicas  : {len(runtime.policy.list_policies())}",
         "",

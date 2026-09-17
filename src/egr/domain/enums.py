@@ -95,6 +95,12 @@ class EventType(BaseStrEnum):
     DEV_PROPOSAL_APPLIED = "dev.proposal_applied"
     DEV_TOOL_LOADED = "dev.tool_loaded"
     DEV_TOOL_REJECTED = "dev.tool_rejected"
+    # avaliação (Fase 8): provar qualidade, custo, latência e segurança
+    EVAL_SUITE_CREATED = "eval.suite_created"
+    EVAL_RUN_STARTED = "eval.run_started"
+    EVAL_RUN_FINISHED = "eval.run_finished"
+    EVAL_REGRESSION = "eval.regression"
+    EVAL_SECURITY_FINDING = "eval.security_finding"
     # system
     SYSTEM_EVENT = "system.event"
 
@@ -147,6 +153,30 @@ class ProposalStatus(BaseStrEnum):
     APPLIED = "applied"        # escrita no workspace e carregada
     REJECTED = "rejected"      # humano recusou
     FAILED = "failed"          # reprovada nas verificações
+
+
+class EvaluationTarget(BaseStrEnum):
+    """O que pode ser avaliado (Fase 8)."""
+
+    TOOL = "tool"
+    WORKFLOW = "workflow"
+    AGENT = "agent"
+    POLICY = "policy"
+
+
+class EvaluationStatus(BaseStrEnum):
+    """Veredito de uma execução de avaliação."""
+
+    PASSED = "passed"        # dentro de todos os limites
+    FAILED = "failed"        # abaixo do mínimo aceitável
+    REGRESSED = "regressed"  # piorou em relação à baseline
+    ERROR = "error"          # nem deu para avaliar (alvo ausente/quebrado)
+
+
+class FindingSeverity(BaseStrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
 
 
 class ApprovalStatus(BaseStrEnum):

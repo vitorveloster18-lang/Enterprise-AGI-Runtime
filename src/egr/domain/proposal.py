@@ -38,6 +38,7 @@ class TrialReport(BaseModel):
     exit_code: int = 0
     output: Any = None
     error: str | None = None
+    cost: float = 0.0
     stdout: str = ""
     stderr: str = ""
     files: list[str] = Field(default_factory=list)  # arquivos criados no sandbox

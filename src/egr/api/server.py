@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ..core.errors import AuthenticationError, AuthorizationError, ConfigError
+from ..domain.evaluation import EvaluationSuite
+from ..evaluation.security import scan as security_scan
 from ..runtime.runtime import Runtime
 from ..security.rbac import TASK_SUBMIT
 from ..security.rbac import require as require_permission
@@ -25,6 +27,7 @@ TAGS = [
     {"name": "security", "description": "Identidade, RBAC, cofre e chaves"},
     {"name": "orchestration", "description": "Workflows, execuções, agenda e webhooks"},
     {"name": "development", "description": "Propostas de mudança: criar agents/tools/workflows sob governo"},
+    {"name": "evaluation", "description": "Casos, métricas, baseline, regressão e varredura de segurança"},
 ]
 
 
@@ -61,6 +64,11 @@ class ProposalDecision(BaseModel):
     note: str = ""
     args: dict = {}
     timeout: int = 10
+
+
+class EvaluationRunRequest(BaseModel):
+    baseline: str | None = None
+    actor: str = "api"
 
 
 class DecisionRequest(BaseModel):
@@ -346,6 +354,72 @@ def create_app(runtime: Runtime) -> FastAPI:
             return runtime.workbench.apply(proposal_id, actor=payload.by).model_dump(mode="json")
         except ConfigError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # ------------------------------------------------------------------
+    @app.get("/v1/eval", tags=["evaluation"])
+    def evaluation() -> dict[str, Any]:
+        """Estado da avaliação: suítes, vereditos, custo e latência."""
+
+        return runtime.evaluation_status()
+
+    @app.get("/v1/eval/suites", tags=["evaluation"])
+    def eval_suites() -> list[dict[str, Any]]:
+        return [suite.summary() for suite in runtime.evaluation_suites.values()]
+
+    @app.post("/v1/eval/suites", tags=["evaluation"])
+    def eval_add_suite(payload: EvaluationSuite) -> dict[str, Any]:
+        """Registra uma suíte (o YAML versionado continua sendo a fonte)."""
+
+        runtime.suites.save(payload)
+        runtime.evaluation_suites[payload.id] = payload
+        return payload.model_dump(mode="json")
+
+    @app.post("/v1/eval/suites/{suite_id}/run", tags=["evaluation"])
+    def eval_run_suite(suite_id: str, payload: EvaluationRunRequest | None = None) -> dict[str, Any]:
+        payload = payload or EvaluationRunRequest()
+        suite = runtime.evaluation_suites.get(suite_id) or runtime.suites.get(suite_id)
+        if suite is None:
+            raise HTTPException(status_code=404, detail="suite not found")
+        try:
+            run = runtime.evaluator.run(suite, baseline=payload.baseline, actor=payload.actor)
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return run.model_dump(mode="json")
+
+    @app.get("/v1/eval/runs", tags=["evaluation"])
+    def eval_runs(suite_id: str | None = None, status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        return [
+            run.summary()
+            for run in runtime.evaluations.list(suite_id=suite_id, status=status, limit=limit)
+        ]
+
+    @app.get("/v1/eval/runs/{run_id}", tags=["evaluation"])
+    def eval_run(run_id: str) -> dict[str, Any]:
+        run = runtime.evaluations.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        return run.model_dump(mode="json")
+
+    @app.post("/v1/eval/runs/{run_id}/baseline", tags=["evaluation"])
+    def eval_baseline(run_id: str) -> dict[str, Any]:
+        """Promove uma execução a referência da suíte."""
+
+        run = runtime.evaluations.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        suite = runtime.evaluation_suites.get(run.suite_id) or runtime.suites.get(run.suite_id)
+        if suite is None:
+            raise HTTPException(status_code=404, detail="suite not found")
+        suite.metadata["baseline_run"] = run.id
+        runtime.suites.save(suite)
+        runtime.evaluation_suites[suite.id] = suite
+        return {"suite": suite.id, "baseline": run.id, "veredito": str(run.status)}
+
+    @app.get("/v1/eval/security/{target_kind}/{target}", tags=["evaluation"])
+    def eval_security(target_kind: str, target: str) -> list[dict[str, Any]]:
+        """Varredura de segurança de um artefato (sem executá-lo)."""
+
+        return [finding.model_dump(mode="json") for finding in security_scan(runtime, target_kind, target)]
 
     # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])
