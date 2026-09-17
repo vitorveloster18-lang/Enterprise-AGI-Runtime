@@ -31,6 +31,10 @@ TAGS = [
     {"name": "evaluation", "description": "Casos, métricas, baseline, regressão e varredura de segurança"},
     {"name": "release", "description": "Promoção dev → staging → produção, versões e rollback"},
     {"name": "gateway", "description": "Canais (Telegram/Slack/Web): mensagem entra, task governada sai"},
+    {
+        "name": "integrations",
+        "description": "Conectores (REST/GraphQL/SQL/webhook): chamada governada e evento idempotente",
+    },
 ]
 
 
@@ -67,6 +71,16 @@ class ProposalDecision(BaseModel):
     note: str = ""
     args: dict = {}
     timeout: int = 10
+
+
+class IntegrationCallRequest(BaseModel):
+    method: str = "GET"
+    path: str = ""
+    query: str = ""
+    body: str | None = None
+    variables: dict[str, Any] = {}
+    dry_run: bool = False
+    by: str = "human:api"
 
 
 class GatewayMessageRequest(BaseModel):
@@ -685,6 +699,94 @@ def create_app(runtime: Runtime) -> FastAPI:
         payload = json.loads((await request.body()).decode("utf-8") or "{}")
         reply = channel.handle_update(payload, runtime.channels.handle_inbound)
         return {"ok": True, "handled": reply is not None}
+
+    # ------------------------------------------------------------------
+    @app.get("/v1/integrations", tags=["integrations"])
+    def integrations() -> dict[str, Any]:
+        """Conectores declarados, chamadas recentes e eventos de entrada."""
+
+        return runtime.integrations_status()
+
+    @app.get("/v1/integrations/calls", tags=["integrations"])
+    def integration_calls(integration: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        """O que saiu daqui: destino, decisão, latência, custo e ator."""
+
+        return [call.summary() for call in runtime.integration_calls.list(integration=integration, limit=limit)]
+
+    @app.get("/v1/integrations/events", tags=["integrations"])
+    def integration_events(integration: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        """O que chegou de fora — e o que o Runtime fez com isso."""
+
+        return [event.summary() for event in runtime.integration_events.list(integration=integration, limit=limit)]
+
+    @app.get("/v1/integrations/{integration_id}", tags=["integrations"])
+    def integration_show(integration_id: str) -> dict[str, Any]:
+        """O que este conector pode fazer (nunca traz a credencial)."""
+
+        try:
+            item = runtime.connectors.get(integration_id)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return item.model_dump(mode="json")
+
+    @app.post("/v1/integrations/{integration_id}/enable", tags=["integrations"])
+    def integration_enable(integration_id: str, disable: bool = False, by: str = "human:api") -> dict[str, Any]:
+        """Habilitar/desabilitar é um ato administrativo e fica na trilha."""
+
+        try:
+            item = runtime.connectors.get(integration_id)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        item.enabled = not disable
+        runtime.connectors.register(item)
+        return item.summary()
+
+    @app.post("/v1/integrations/{integration_id}/call", tags=["integrations"])
+    def integration_call(integration_id: str, request: IntegrationCallRequest) -> dict[str, Any]:
+        """Chama um conector declarado: política decide, trilha registra."""
+
+        try:
+            call = runtime.connectors.call(
+                integration_id,
+                method=request.method,
+                path=request.path,
+                query=request.query,
+                body=request.body,
+                variables=request.variables,
+                dry_run=request.dry_run,
+                actor=request.by,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return call.summary()
+
+    @app.post("/v1/integrations/{integration_id}/test", tags=["integrations"])
+    def integration_test(integration_id: str) -> dict[str, Any]:
+        """Teste sem efeito colateral: `GET /`, `select 1` ou introspecção."""
+
+        try:
+            return runtime.connectors.test(integration_id, actor="human:api").summary()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/integrations/{integration_id}/events", tags=["integrations"])
+    async def integration_receive(integration_id: str, request: Request) -> dict[str, Any]:
+        """Webhook de entrada: assinatura conferida, id repetido não reprocessa."""
+
+        body = (await request.body()).decode("utf-8")
+        try:
+            payload = json.loads(body or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="payload inválido") from exc
+        event = runtime.connectors.receive(
+            integration_id,
+            payload,
+            headers=dict(request.headers),
+            signature=request.headers.get("x-egr-signature"),
+        )
+        if str(event.status) == "rejected":
+            raise HTTPException(status_code=401, detail=event.error or "evento recusado")
+        return event.summary()
 
     # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])

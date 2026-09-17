@@ -12,6 +12,7 @@ from .email_tool import EmailReadTool, EmailSendTool
 from .filesystem import FilesystemListTool, FilesystemReadTool, FilesystemWriteTool
 from .git_tool import GitCommitTool, GitDiffTool, GitLogTool, GitStatusTool
 from .http_request import HttpRequestTool
+from .integration_call import IntegrationCallTool, IntegrationListTool
 from .process_run import ProcessRunTool
 from .python_exec import PythonExecuteTool
 
@@ -23,6 +24,8 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         FilesystemWriteTool,
         PythonExecuteTool,
         HttpRequestTool,
+        IntegrationCallTool,
+        IntegrationListTool,
         ProcessRunTool,
         DatabaseQueryTool,
         DevProposeTool,
@@ -50,6 +53,8 @@ __all__ = [
     "FilesystemReadTool",
     "FilesystemWriteTool",
     "HttpRequestTool",
+    "IntegrationCallTool",
+    "IntegrationListTool",
     "ProcessRunTool",
     "PythonExecuteTool",
     "ToolSpec",

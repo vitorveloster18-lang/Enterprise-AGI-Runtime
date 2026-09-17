@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 10 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance e Remote Control) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 11 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control e Enterprise Integrations) · Python-first.
 
 ---
 
@@ -82,7 +82,8 @@ minimização e sanitização de dados.
 ## 4. Arquitetura (implementada)
 
 ```
-                        CLI · API · (Telegram/Slack na Fase 10)
+        CLI · API · Telegram/Slack/Web (Fase 10) · Sistemas externos
+                    via conectores declarados (Fase 11)
                                      │
    ┌─────────────────────────────────┴─────────────────────────────────┐
    │                        RUNTIME (egr/runtime)                      │
@@ -94,6 +95,7 @@ minimização e sanitização de dados.
      aprovações      openai_compat    python(sandbox)  operational
      por ambiente    boundary check   http, process    episodic (FTS)
            │               │          database(ro)          │
+           │               │          integration.call      │
            └───────────────┴──────────────┬─────────────────┘
                                     AUDIT LEDGER
                             append-only · hash encadeado
@@ -122,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 278 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação) |
+| Testes | `tests/` | 335 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook) |
 
 ## 6. Comandos principais
 
@@ -373,6 +375,26 @@ vira `Principal` com papéis, `/run` e texto livre viram task com
 Achado crítico de segurança reprova a execução **mesmo com todos os casos
 passando** — prova funcional não compra imunidade de governo.
 
+## 5.9 Enterprise Integrations (Fase 11)
+
+```bash
+egr integration sync                     # integrations/*.yaml -> registro
+egr integration list | show CRM | enable WAREHOUSE --by human:vitor
+egr integration call CRM /clientes       # leitura: permitida
+egr integration call CRM /pedidos -X POST -d '{"valor":10}'   # escrita: aprovação
+egr integration call WAREHOUSE --query "select count(*) as total from tasks"
+egr integration calls                    # destino, decisão, latência, custo, ator
+egr integration events                   # o que chegou de fora
+```
+
+REST, GraphQL, SQL e webhooks de entrada entram pela mesma porta: o conector é
+**declarado** (host, métodos, leitura/escrita), a credencial vive no cofre e a
+política julga a **operação** — um `POST` de GraphQL pode ser só leitura, um
+`select` de SQL não é menos leitura por isso. Escrita em sistema alheio exige
+aprovação; recusa é fato registrado. Webhook de entrada é assinado (HMAC),
+idempotente por id e **não executa nada**: só um gatilho de workflow declarado
+transforma evento em trabalho.
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -439,6 +461,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE8_EVALUATION.md`](docs/PHASE8_EVALUATION.md) — Fase 8 (suítes, métricas, baseline, regressão, segurança)
 - [`docs/PHASE9_GOVERNANCE.md`](docs/PHASE9_GOVERNANCE.md) — Fase 9 (release, gates de promoção, versão por snapshot, rollback)
 - [`docs/PHASE10_REMOTE_CONTROL.md`](docs/PHASE10_REMOTE_CONTROL.md) — Fase 10 (gateway de canais, pareamento, comandos)
+- [`docs/PHASE11_INTEGRATIONS.md`](docs/PHASE11_INTEGRATIONS.md) — Fase 11 (conectores REST/GraphQL/SQL/webhook, política por operação, eventos idempotentes)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

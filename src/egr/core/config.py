@@ -190,6 +190,20 @@ class GatewayConfig(BaseModel):
     channels: list[ChannelConfig] = Field(default_factory=list)
 
 
+class IntegrationsConfig(BaseModel):
+    """Fase 11: conectores declarados em `integrations/*.yaml`."""
+
+    enabled: bool = True
+    #: teto de caracteres da resposta guardada na trilha (o corpo não é cofre)
+    max_response_chars: int = 4000
+    #: tempo limite padrão de uma chamada externa (segundos)
+    default_timeout: int = 20
+    #: redigir segredos antes de registrar pedido e resposta
+    redact: bool = True
+    #: permitir drivers SQL além do sqlite (declarado, nunca implícito)
+    allow_sql_drivers: list[str] = Field(default_factory=lambda: ["sqlite"])
+
+
 class SecurityConfig(BaseModel):
     python_exec_enabled: bool = True
     allow_network_tools: bool = True
@@ -268,6 +282,7 @@ class EGRConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 

@@ -33,6 +33,7 @@ from ..evaluation.loader import load_suite_dir
 from ..evaluation.runner import EvaluationRunner
 from ..gateway import build_channels
 from ..gateway.service import GatewayService
+from ..integrations import ConnectorService
 from ..memory import MemoryService
 from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
@@ -57,6 +58,9 @@ from ..storage.repositories import (
     GatewayBindingRepository,
     GatewayMessageRepository,
     IdentityRepository,
+    IntegrationCallRepository,
+    IntegrationEventRepository,
+    IntegrationRepository,
     KeyRepository,
     MemoryRepository,
     ModelUsageRepository,
@@ -177,6 +181,10 @@ class Runtime:
         self.versions = ArtifactVersionRepository(self.db)
         self.gateway_bindings = GatewayBindingRepository(self.db)
         self.gateway_messages = GatewayMessageRepository(self.db)
+        # Fase 11: integrações (REST/GraphQL/SQL/webhook)
+        self.integrations_repository = IntegrationRepository(self.db)
+        self.integration_calls = IntegrationCallRepository(self.db)
+        self.integration_events = IntegrationEventRepository(self.db)
 
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
@@ -212,6 +220,9 @@ class Runtime:
         # Fase 10: canais (Telegram/Slack/Web) — `self.gateway` continua sendo o ModelGateway
         self.channels = GatewayService(self)
         self._load_channels()
+        # Fase 11: conectores declarados em `integrations/*.yaml`
+        self.connectors = ConnectorService(self)
+        self._load_integrations()
         self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
@@ -261,6 +272,16 @@ class Runtime:
         for channel in build_channels(self):
             self.channels.register(channel)
 
+    def _load_integrations(self) -> None:
+        """Conectores declarados entram no registro em memória."""
+
+        self.connectors.load()
+
+    def integrations_status(self) -> dict[str, Any]:
+        """Fase 11: com quem o Runtime conversa — e o que isso custou."""
+
+        return self.connectors.status()
+
     def channel_status(self) -> dict[str, Any]:
         """Fase 10: por onde o Runtime conversa com gente."""
 
@@ -291,11 +312,29 @@ class Runtime:
         )
         return policies
 
+    def sync_integrations(self) -> list:
+        """Load integrations/*.yaml into the runtime."""
+
+        integrations = self.connectors.sync()
+        if integrations:
+            self.audit.record(
+                EventType.SYSTEM_EVENT,
+                actor="runtime",
+                payload={"action": "sync_integrations", "count": len(integrations)},
+            )
+        return integrations
+
     def sync_all(self) -> dict[str, int]:
         agents = self.sync_agents()
         policies = self.sync_policies()
+        integrations = self.sync_integrations()
         self._load_workflows()
-        return {"agents": len(agents), "policies": len(policies), "workflows": len(self.workflows)}
+        return {
+            "agents": len(agents),
+            "policies": len(policies),
+            "workflows": len(self.workflows),
+            "integrations": len(integrations),
+        }
 
     def register_agent(self, agent: AgentSpec) -> AgentSpec:
         self.agent_repository.save(agent)
@@ -916,6 +955,7 @@ class Runtime:
             "evaluation": self.evaluation_status(),
             "governance": self.governance_status(),
             "channels": self.channel_status(),
+            "integrations": self.integrations_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -1067,6 +1107,34 @@ class Runtime:
                     ),
                 }
             )
+
+        integrations = self.integrations_status()
+        enabled_connectors = [
+            item for item in integrations["conectores"]["itens"] if item["habilitado"]
+        ]
+        add(
+            "integrations",
+            not integrations["habilitado"] or bool(integrations["conectores"]["total"]),
+            f"{integrations['conectores']['total']} conector(es) "
+            f"({len(enabled_connectors)} habilitado(s)), "
+            f"{integrations['chamadas']['total']} chamada(s), "
+            f"{integrations['eventos']['total']} evento(s)"
+            + ("" if integrations["habilitado"] else " (integrações desabilitadas)"),
+        )
+        for item in enabled_connectors:
+            if item["tipo"] not in ("rest", "graphql"):
+                continue  # SQL não sai por HTTP: a fronteira é o driver declarado
+            if item["hosts"] in ("-", ""):
+                checks.append(
+                    {
+                        "check": f"integracao:{item['id']}",
+                        "ok": False,
+                        "detail": (
+                            f"conector '{item['id']}' habilitado sem lista branca de hosts: "
+                            "declare allowed_hosts (ou desabilite o conector)"
+                        ),
+                    }
+                )
 
         evaluation = self.evaluation_status()
         add(

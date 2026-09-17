@@ -86,6 +86,12 @@ gateway:
       type: web              # chat em /chat (console web)
       enabled: true
       default_agent: document-agent
+integrations:
+  enabled: true                  # conectores continuam nascendo desabilitados
+  max_response_chars: 4000
+  default_timeout: 20
+  redact: true                   # segredo nunca entra na trilha
+  allow_sql_drivers: [sqlite]    # driver novo é declaração, não descoberta
 runtime:
   max_steps: 8
   tool_timeout: 30

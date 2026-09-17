@@ -115,6 +115,12 @@ class EventType(BaseStrEnum):
     GATEWAY_DENIED = "gateway.denied"
     GATEWAY_PAIRED = "gateway.paired"
     GATEWAY_UNPAIRED = "gateway.unpaired"
+    # integrações (Fase 11): sistema externo é fronteira, não extensão do agente
+    INTEGRATION_CALLED = "integration.called"
+    INTEGRATION_DENIED = "integration.denied"
+    INTEGRATION_TESTED = "integration.tested"
+    INTEGRATION_EVENT_RECEIVED = "integration.event_received"
+    INTEGRATION_EVENT_REJECTED = "integration.event_rejected"
     # system
     SYSTEM_EVENT = "system.event"
 
@@ -126,6 +132,24 @@ class ChannelKind(BaseStrEnum):
     TELEGRAM = "telegram"
     SLACK = "slack"
     WEB = "web"
+
+
+class IntegrationKind(BaseStrEnum):
+    """Fase 11: conector declarado (REST, GraphQL, SQL, webhook de entrada)."""
+
+    REST = "rest"
+    GRAPHQL = "graphql"
+    SQL = "sql"
+    WEBHOOK = "webhook"
+
+
+class IntegrationEventStatus(BaseStrEnum):
+    """O que o Runtime fez com um evento que chegou de fora."""
+
+    RECEIVED = "received"      # aceito e registrado
+    DUPLICATE = "duplicate"    # id repetido: idempotência
+    REJECTED = "rejected"      # assinatura inválida ou conector desabilitado
+    TRIGGERED = "triggered"    # virou trabalho (gatilho de workflow)
 
 
 class BindingStatus(BaseStrEnum):

@@ -4,7 +4,7 @@
 #   init -> status -> doctor -> task (dev) -> task (production, approval)
 #   -> approval approve -> tools/MCP -> segurança (identidade, RBAC, cofre)
 #   -> orquestração -> desenvolvimento -> avaliação -> release -> canais
-#   -> audit verify -> memory search
+#   -> integrações -> audit verify -> memory search
 #
 # Uso: bash scripts/demo.sh [diretório do workspace]
 set -euo pipefail
@@ -156,7 +156,7 @@ fi
 "$EGR_BIN" release versions workflow invoice-processing || true
 "$EGR_BIN" release list || true
 
-step "15/16 · Fase 10 — Remote Control (gateway, pareamento, mensagem governada)"
+step "15/17 · Fase 10 — Remote Control (gateway, pareamento, mensagem governada)"
 # o gateway nasce desligado (default deny): o demo liga para mostrar os dois lados
 HABILITADO="$(mktemp)"
 awk '/^gateway:/{g=1} g && /^  enabled:/ {print "  enabled: true"; g=0; next} {print}' \
@@ -173,7 +173,16 @@ fi
 "$EGR_BIN" gateway bindings || true
 "$EGR_BIN" gateway messages || true
 
-step "16/16 · auditoria e memória"
+step "16/17 · Fase 11 — Integrações (conector declarado, chamada governada)"
+"$EGR_BIN" integration sync
+"$EGR_BIN" integration list || true
+"$EGR_BIN" integration enable WAREHOUSE --by human:vitor
+"$EGR_BIN" integration call WAREHOUSE --query "select count(*) as total from tasks" || true
+"$EGR_BIN" integration call WAREHOUSE --query "delete from tasks" || true   # recusada: somente leitura
+"$EGR_BIN" integration calls || true
+"$EGR_BIN" integration events || true
+
+step "17/17 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

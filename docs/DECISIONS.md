@@ -681,3 +681,59 @@ decide nada disso.
 
 **Consequências:** contenção e sigilo passam a valer para canais que ainda não
 existem; o custo é uma consulta a mais por mensagem.
+
+---
+
+## ADR-040 · Conector declarado, nunca inventado
+
+**Status:** aceita (Fase 11).
+
+**Contexto:** dar ao agente liberdade de montar URL e credencial é terceirizar a
+fronteira da empresa para um plano gerado em runtime — e perder a chance de
+auditar o que saiu.
+
+**Decisão:** todo acesso externo passa por um conector **declarado** em
+`integrations/*.yaml`, com host, métodos e leitura/escrita explícitos; a
+credencial só existe como referência (`vault:NOME` ou variável de ambiente),
+resolvida pelo Runtime no momento da chamada. Conector nasce desabilitado. O
+agente chama `integration.call` com o **nome** do conector.
+
+**Consequências:** o que a empresa conversa é revisionado e o segredo não mora
+em YAML; o custo é que integrar um sistema novo começa por um arquivo, não por
+uma ideia do agente.
+
+---
+
+## ADR-041 · A política julga a operação, não o verbo HTTP
+
+**Status:** aceita (Fase 11).
+
+**Contexto:** GraphQL sempre usa `POST` (uma `query` não é escrita) e SQL sequer
+tem verbo HTTP. Julgar por método transformaria leitura em aprovação obrigatória
+— e escrita SQL em leitura permitida.
+
+**Decisão:** o `ConnectorService` normaliza o pedido em uma **operação**
+(`GET/POST`, `QUERY/MUTATION`, `SELECT/DELETE`) e publica `write: bool` no
+contexto da política; as regras decidem por isso.
+
+**Consequências:** leitura em GraphQL e SQL é permitida sem atrito e escrita
+continua exigindo gente; o custo é uma camada de normalização que precisa
+acompanhar cada tipo novo de conector.
+
+---
+
+## ADR-042 · Entrada é evento idempotente, não execução
+
+**Status:** aceita (Fase 11).
+
+**Contexto:** webhook que executa ferramenta é execução remota com CEP: repetição
+de entrega vira efeito duplicado, e replay antigo vira ordem válida fora de hora.
+
+**Decisão:** evento de entrada é verificado (HMAC com janela de 300 s),
+deduplicado por `external_id` no banco (índice único) e apenas **registrado**; só
+um workflow declarado com `trigger.event` casando transforma isso em trabalho
+governado.
+
+**Consequências:** reentrega do fornecedor é inofensiva e a trilha mostra o que
+chegou mesmo quando nada foi feito; o custo é que “chegou” não implica “fez” —
+de propósito.

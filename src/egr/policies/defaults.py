@@ -134,6 +134,35 @@ def baseline_policy() -> Policy:
                 decision=DecisionType.ALLOW,
                 reason="read-only queries are allowed",
             ),
+            # ---------------- integrations (Fase 11) -----------
+            PolicyRule(
+                id="integration-write-production",
+                action="integration.call",
+                condition=f"write == True and environment == '{PRD}'",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="writing to an external system from production requires approval",
+            ),
+            PolicyRule(
+                id="integration-write",
+                action="integration.call",
+                condition="write == True",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="write calls to external systems require approval",
+            ),
+            PolicyRule(
+                id="integration-read",
+                action="integration.call",
+                decision=DecisionType.ALLOW,
+                reason="read-only calls to declared connectors are allowed",
+            ),
+            PolicyRule(
+                id="integration-receive",
+                action="integration.receive",
+                decision=DecisionType.ALLOW,
+                reason="inbound webhooks are recorded, not executed",
+            ),
             # ---------------- git (Fase 3) ---------------------
             PolicyRule(
                 id="git-read",

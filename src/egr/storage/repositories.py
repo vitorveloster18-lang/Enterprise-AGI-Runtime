@@ -17,6 +17,7 @@ from ..domain.artifact import Artifact
 from ..domain.channel import ChannelBinding, GatewayMessage
 from ..domain.enterprise import Enterprise
 from ..domain.evaluation import EvaluationRun, EvaluationSuite
+from ..domain.integration import InboundEvent, Integration, IntegrationCall
 from ..domain.memory import MemoryRecord
 from ..domain.policy import Policy
 from ..domain.proposal import ChangeProposal
@@ -1193,3 +1194,155 @@ class GatewayMessageRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM gateway_messages") or 0)
+
+
+# ---------------------------------------------------------------------------
+# Fase 11 — integrações (conectores declarados, chamadas, eventos de entrada)
+# ---------------------------------------------------------------------------
+class IntegrationRepository:
+    """Conectores declarados: habilitar é um ato explícito e versionado."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, integration: Integration) -> Integration:
+        self.db.execute(
+            "INSERT INTO integrations (id, type, enabled, data, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+            "type = excluded.type, enabled = excluded.enabled, data = excluded.data, updated_at = excluded.updated_at",
+            (
+                integration.id,
+                str(integration.type),
+                int(integration.enabled),
+                _dump(integration),
+                iso(integration.updated_at or utcnow()),
+            ),
+        )
+        self.db.commit()
+        return integration
+
+    def get(self, integration_id: str) -> Integration | None:
+        row = self.db.query_one("SELECT * FROM integrations WHERE id = ?", (integration_id,))
+        return _load(row, Integration) if row else None
+
+    def list(self, limit: int = 100) -> list[Integration]:
+        rows = self.db.query("SELECT * FROM integrations ORDER BY id LIMIT ?", (limit,))
+        return [_load(row, Integration) for row in rows]
+
+    def set_enabled(self, integration_id: str, enabled: bool) -> bool:
+        integration = self.get(integration_id)
+        if integration is None:
+            return False
+        integration.enabled = enabled
+        self.save(integration)
+        return True
+
+    def delete(self, integration_id: str) -> bool:
+        self.db.execute("DELETE FROM integrations WHERE id = ?", (integration_id,))
+        self.db.commit()
+        return True
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM integrations") or 0)
+
+
+class IntegrationCallRepository:
+    """Cada chamada: destino, decisão, latência, custo e ator."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, call: IntegrationCall) -> IntegrationCall:
+        self.db.execute(
+            "INSERT INTO integration_calls (id, integration, direction, ok, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET ok = excluded.ok, data = excluded.data",
+            (
+                call.id,
+                call.integration,
+                "out",
+                int(bool(call.ok)),
+                _dump(call),
+                iso(call.created_at or utcnow()),
+            ),
+        )
+        self.db.commit()
+        return call
+
+    def list(self, integration: str | None = None, limit: int = 20) -> list[IntegrationCall]:
+        if integration:
+            rows = self.db.query(
+                "SELECT * FROM integration_calls WHERE integration = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (integration, limit),
+            )
+        else:
+            rows = self.db.query(
+                "SELECT * FROM integration_calls ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
+            )
+        return [_load(row, IntegrationCall) for row in rows]
+
+    def stats(self) -> dict[str, Any]:
+        rows = self.db.query(
+            "SELECT integration, COUNT(*) AS total, SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) AS sucesso, "
+            "SUM(json_extract(data, '$.cost')) AS custo FROM integration_calls GROUP BY integration"
+        )
+        return {
+            row["integration"]: {
+                "total": row["total"],
+                "sucesso": row["sucesso"],
+                "custo": round(float(row["custo"] or 0.0), 4),
+            }
+            for row in rows
+        }
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM integration_calls") or 0)
+
+
+class IntegrationEventRepository:
+    """Eventos de entrada: idempotência por (conector, id externo)."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, event: InboundEvent) -> InboundEvent:
+        try:
+            self.db.execute(
+                "INSERT INTO integration_events (id, integration, external_id, status, data, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    event.id,
+                    event.integration,
+                    event.external_id,
+                    str(event.status),
+                    _dump(event),
+                    iso(event.created_at or utcnow()),
+                ),
+            )
+            self.db.commit()
+        except Exception as exc:  # id repetido: o índice único é a garantia
+            if "UNIQUE" not in str(exc).upper():
+                raise
+        return event
+
+    def exists(self, integration: str, external_id: str) -> bool:
+        return bool(
+            self.db.scalar(
+                "SELECT COUNT(*) FROM integration_events WHERE integration = ? AND external_id = ?",
+                (integration, external_id),
+            )
+        )
+
+    def list(self, integration: str | None = None, limit: int = 20) -> list[InboundEvent]:
+        if integration:
+            rows = self.db.query(
+                "SELECT * FROM integration_events WHERE integration = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (integration, limit),
+            )
+        else:
+            rows = self.db.query(
+                "SELECT * FROM integration_events ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
+            )
+        return [_load(row, InboundEvent) for row in rows]
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM integration_events") or 0)

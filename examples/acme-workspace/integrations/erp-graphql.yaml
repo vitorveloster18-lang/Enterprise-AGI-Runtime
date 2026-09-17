@@ -1,0 +1,17 @@
+integrations:
+  - id: ERP
+    name: ERP (estoque e pedidos)
+    type: graphql
+    description: consultas de estoque e pedidos (query; mutation exigiria escrita)
+    enabled: false
+    base_url: https://erp.acme.example.com/graphql
+    auth:
+      scheme: header
+      header: X-Api-Key
+      prefix: ""
+      secret: ERP_API_KEY               # variável de ambiente
+    allowed_hosts: [erp.acme.example.com]
+    allowed_methods: [POST]
+    read_only: true
+    timeout: 25
+    cost_per_call: 0.005

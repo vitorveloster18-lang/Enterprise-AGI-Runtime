@@ -15,6 +15,7 @@ from .commands import (
     evaluation,
     gateway,
     governance,
+    integration,
     mcp,
     memory,
     models,
@@ -60,6 +61,8 @@ app.add_typer(dev.app, name="dev")
 app.add_typer(evaluation.app, name="eval")
 # canais (Fase 10): Telegram/Slack/Web sobre a mesma API
 app.add_typer(gateway.app, name="gateway")
+# integrações (Fase 11): REST/GraphQL/SQL/webhook com política e trilha
+app.add_typer(integration.app, name="integration")
 app.add_typer(mcp.app, name="mcp")
 app.add_typer(proposals.app, name="proposal")
 # governança de produção (Fase 9): promoção com versão, evidência e volta

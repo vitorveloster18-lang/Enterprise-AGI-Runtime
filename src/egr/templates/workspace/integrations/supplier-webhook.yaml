@@ -1,0 +1,18 @@
+# Webhook de ENTRADA: o sistema externo chama o Runtime.
+# Entrada não é execução: o evento é verificado (HMAC), deduplicado por id e
+# registrado — só um gatilho de workflow declarado transforma isso em trabalho.
+integrations:
+  - id: FORNECEDOR
+    name: Eventos do fornecedor
+    type: webhook
+    description: recebe eventos de pedido do fornecedor
+    enabled: false
+    base_url: https://fornecedor.exemplo.com
+    inbound:
+      enabled: true
+      secret: vault:FORNECEDOR_WEBHOOK_SECRET
+      signature_header: X-EGR-Signature
+      event_id_header: X-EGR-Event-Id
+      event_type: integration.fornecedor
+      tolerance_seconds: 300
+    cost_per_call: 0.0

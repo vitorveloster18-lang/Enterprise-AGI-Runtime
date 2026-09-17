@@ -1,0 +1,18 @@
+# GraphQL: uma única porta, query explícita, variáveis tipadas.
+integrations:
+  - id: ERP
+    name: ERP (estoque e pedidos)
+    type: graphql
+    description: consultas de estoque e pedidos no ERP
+    enabled: false
+    base_url: https://erp.exemplo.com/graphql
+    auth:
+      scheme: header
+      header: X-Api-Key
+      prefix: ""
+      secret: ERP_API_KEY               # variável de ambiente
+    allowed_hosts: [erp.exemplo.com]
+    allowed_methods: [POST]
+    read_only: true
+    timeout: 25
+    cost_per_call: 0.005

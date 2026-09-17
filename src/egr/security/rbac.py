@@ -42,6 +42,9 @@ IDENTITY_MANAGE = "identity.manage"
 # Fase 10 — gateway de canais (Telegram/Slack/Web)
 GATEWAY_USE = "gateway.use"
 GATEWAY_PAIR = "gateway.pair"
+# Fase 11 — integrações (REST/GraphQL/SQL/webhook)
+INTEGRATION_CALL = "integration.call"
+INTEGRATION_MANAGE = "integration.manage"
 
 PERMISSIONS: tuple[str, ...] = (
     TASK_READ,
@@ -67,6 +70,8 @@ PERMISSIONS: tuple[str, ...] = (
     IDENTITY_MANAGE,
     GATEWAY_USE,
     GATEWAY_PAIR,
+    INTEGRATION_CALL,
+    INTEGRATION_MANAGE,
 )
 
 # Fase 10: falar com o Runtime por um canal não é executar — executar continua sendo task.submit
@@ -78,10 +83,19 @@ _OPERATOR = _VIEWER | {
     MEMORY_WRITE,
     POLICY_SYNC,
     RELEASE_PROMOTE,
+    INTEGRATION_CALL,
 }
 _APPROVER = _VIEWER | {APPROVAL_DECIDE, RELEASE_PROMOTE, GATEWAY_PAIR}
 _AUDITOR = _VIEWER | {AUDIT_READ}
-_SECURITY_ADMIN = _OPERATOR | {SECRET_READ, SECRET_WRITE, SECRET_ROTATE, KEY_MANAGE, IDENTITY_MANAGE, POLICY_WRITE}
+_SECURITY_ADMIN = _OPERATOR | {
+    SECRET_READ,
+    SECRET_WRITE,
+    SECRET_ROTATE,
+    KEY_MANAGE,
+    IDENTITY_MANAGE,
+    POLICY_WRITE,
+    INTEGRATION_MANAGE,
+}
 
 ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset(_VIEWER),
