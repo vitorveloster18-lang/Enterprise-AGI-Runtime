@@ -63,6 +63,7 @@ from ..storage.repositories import (
     IdentityRepository,
     IntegrationCallRepository,
     IntegrationEventRepository,
+    IntegrationJobRepository,
     IntegrationRepository,
     KeyRepository,
     MemoryRepository,
@@ -189,6 +190,7 @@ class Runtime:
         self.integrations_repository = IntegrationRepository(self.db)
         self.integration_calls = IntegrationCallRepository(self.db)
         self.integration_events = IntegrationEventRepository(self.db)
+        self.integration_jobs = IntegrationJobRepository(self.db)
         # Fase 12: pacotes verticais instalados
         self.packs_repository = PackRepository(self.db)
 
@@ -1243,6 +1245,19 @@ class Runtime:
             f"{integrations['eventos']['total']} evento(s)"
             + ("" if integrations["habilitado"] else " (integrações desabilitadas)"),
         )
+        fila = integrations["fila"]
+        falhas = int((fila.get("por_status") or {}).get("failed", 0))
+        if falhas:
+            checks.append(
+                {
+                    "check": "integracoes:fila",
+                    "ok": False,
+                    "detail": (
+                        f"{falhas} job(s) de integração esgotaram as tentativas: "
+                        "veja `egr integration jobs --status failed`"
+                    ),
+                }
+            )
         for item in enabled_connectors:
             if item["tipo"] not in ("rest", "graphql"):
                 continue  # SQL não sai por HTTP: a fronteira é o driver declarado

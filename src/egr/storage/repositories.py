@@ -17,7 +17,7 @@ from ..domain.artifact import Artifact
 from ..domain.channel import ChannelBinding, GatewayMessage
 from ..domain.enterprise import Enterprise
 from ..domain.evaluation import EvaluationRun, EvaluationSuite
-from ..domain.integration import InboundEvent, Integration, IntegrationCall
+from ..domain.integration import InboundEvent, Integration, IntegrationCall, IntegrationJob
 from ..domain.memory import MemoryRecord
 from ..domain.pack import InstalledPack
 from ..domain.policy import Policy
@@ -1390,3 +1390,96 @@ class PackRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM packs") or 0)
+
+
+class IntegrationJobRepository:
+    """Fila de saída: o que está prometido, o que falhou e por quê."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, job: IntegrationJob) -> IntegrationJob:
+        job.updated_at = utcnow()
+        try:
+            self.db.execute(
+                "INSERT INTO integration_jobs (id, integration, status, attempts, next_attempt, "
+                "idempotency, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    job.id,
+                    job.integration,
+                    str(job.status),
+                    job.attempts,
+                    iso(job.next_attempt) if job.next_attempt else None,
+                    job.idempotency,
+                    _dump(job),
+                    iso(job.created_at or utcnow()),
+                    iso(job.updated_at),
+                ),
+            )
+        except Exception as exc:  # idempotência repetida: devolve o job existente
+            if "UNIQUE" not in str(exc).upper():
+                raise
+            existing = self.find(job.integration, job.idempotency) if job.idempotency else None
+            return existing or job
+        self.db.commit()
+        return job
+
+    def get(self, job_id: str) -> IntegrationJob | None:
+        row = self.db.query_one("SELECT * FROM integration_jobs WHERE id = ?", (job_id,))
+        return _load(row, IntegrationJob) if row else None
+
+    def find(self, integration: str, idempotency: str) -> IntegrationJob | None:
+        row = self.db.query_one(
+            "SELECT * FROM integration_jobs WHERE integration = ? AND idempotency = ?",
+            (integration, idempotency),
+        )
+        return _load(row, IntegrationJob) if row else None
+
+    def update(self, job: IntegrationJob) -> IntegrationJob:
+        job.updated_at = utcnow()
+        self.db.execute(
+            "UPDATE integration_jobs SET status = ?, attempts = ?, next_attempt = ?, "
+            "data = ?, updated_at = ? WHERE id = ?",
+            (
+                str(job.status),
+                job.attempts,
+                iso(job.next_attempt) if job.next_attempt else None,
+                _dump(job),
+                iso(job.updated_at),
+                job.id,
+            ),
+        )
+        self.db.commit()
+        return job
+
+    def due(self, moment, limit: int = 10) -> list[IntegrationJob]:
+        """Jobs que já podem ser tentados: pendentes cuja espera venceu."""
+
+        rows = self.db.query(
+            "SELECT * FROM integration_jobs WHERE status IN ('pending', 'running') AND "
+            "(next_attempt IS NULL OR next_attempt <= ?) ORDER BY created_at LIMIT ?",
+            (iso(moment), limit),
+        )
+        return [_load(row, IntegrationJob) for row in rows]
+
+    def list(self, status: str | None = None, integration: str | None = None, limit: int = 20):
+        clauses, params = [], []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if integration:
+            clauses.append("integration = ?")
+            params.append(integration)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM integration_jobs {where} ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, IntegrationJob) for row in rows]
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM integration_jobs GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM integration_jobs") or 0)

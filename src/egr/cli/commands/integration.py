@@ -276,6 +276,131 @@ def calls(
         )
 
 
+@app.command(name="enqueue")
+def enqueue(
+    integration: str = typer.Argument(..., help="id do conector"),
+    path: str = typer.Argument("", help="caminho (REST/GraphQL)"),
+    method: str = typer.Option("GET", "--method", "-X"),
+    query: str = typer.Option("", "--query", "-q", help="query GraphQL ou SQL"),
+    body: str = typer.Option("", "--data", "-d"),
+    key: str = typer.Option(None, "--key", "-k", help="chave de idempotência"),
+    attempts: int = typer.Option(None, "--attempts", "-t", help="tentativas antes de desistir"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Promete uma chamada: entra na fila, não tenta agora."""
+
+    runtime = get_runtime(workspace)
+    try:
+        job = runtime.connectors.enqueue(
+            integration,
+            method=method,
+            path=path,
+            query=query,
+            body=body or None,
+            idempotency=key,
+            max_attempts=attempts,
+            actor="human:cli",
+        )
+    except Exception as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    if as_json:
+        json_output(job.summary())
+        return
+    success(f"job {job.id} na fila ({job.method} {job.integration})")
+    info("processar: egr integration drain")
+
+
+@app.command(name="jobs")
+def jobs(
+    status: str = typer.Option(None, "--status", "-s", help="pending | running | done | failed | cancelled"),
+    integration: str = typer.Option(None, "--integration", "-i"),
+    limit: int = typer.Option(20, "--limit", "-n"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """A fila de saída: o que está prometido, o que falhou e por quê."""
+
+    runtime = get_runtime(workspace)
+    rows = runtime.integration_jobs.list(status=status, integration=integration, limit=limit)
+    if as_json:
+        json_output([job.summary() for job in rows])
+        return
+    if not rows:
+        info("fila vazia")
+        return
+    table(
+        "Fila de saída",
+        ["id", "conector", "método", "status", "tentativas", "próxima", "erro", "quando"],
+        [
+            [
+                job.id,
+                job.integration,
+                job.method,
+                str(job.status),
+                f"{job.attempts}/{job.max_attempts}",
+                job.summary()["próxima"],
+                (job.last_error or "-")[:40],
+                job.summary()["quando"],
+            ]
+            for job in rows
+        ],
+    )
+    stats = runtime.integration_jobs.stats()
+    if stats:
+        kv("Por status", stats)
+
+
+@app.command(name="drain")
+def drain(
+    limit: int = typer.Option(None, "--limit", "-n"),
+    as_json: bool = typer.Option(False, "--json", help="saída JSON"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Processa os jobs cuja espera venceu (com espera crescente entre tentativas)."""
+
+    runtime = get_runtime(workspace)
+    resultados = runtime.connectors.drain(limit)
+    if as_json:
+        json_output(resultados)
+        return
+    if not resultados:
+        info("nada pendente")
+        return
+    table(
+        "Processados",
+        ["id", "conector", "status", "tentativas", "próxima", "erro"],
+        [
+            [
+                item["id"],
+                item["conector"],
+                item["status"],
+                item["tentativas"],
+                item["próxima"],
+                (item["erro"] or "-")[:40],
+            ]
+            for item in resultados
+        ],
+    )
+
+
+@app.command(name="cancel")
+def cancel(
+    job: str = typer.Argument(..., help="id do job"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Cancela um job que ainda não foi executado."""
+
+    runtime = get_runtime(workspace)
+    try:
+        cancelado = runtime.connectors.cancel(job, actor="human:cli")
+    except Exception as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    warning(f"{cancelado.id} cancelado")
+
+
 @app.command(name="events")
 def events(
     integration: str = typer.Option(None, "--integration", "-i"),

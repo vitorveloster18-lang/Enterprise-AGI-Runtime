@@ -19,22 +19,30 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from ..core.errors import ConfigError
 from ..core.ids import new_id
 from ..core.timeutil import utcnow
-from ..domain.enums import Environment, EventType, IntegrationEventStatus, IntegrationKind, RiskLevel
+from ..domain.enums import (
+    Environment,
+    EventType,
+    IntegrationEventStatus,
+    IntegrationKind,
+    JobStatus,
+    RiskLevel,
+)
 from ..domain.integration import (
     READ_OPERATIONS,
     InboundEvent,
     Integration,
     IntegrationCall,
+    IntegrationJob,
 )
 from ..domain.tool import ToolRequest
 from ..policies.engine import PolicyContext
-from ..runtime.triggers import matches as matches_pattern
 from ..security.redaction import redact_text
 from .loader import load_integration_dir
 from .transports import Transport, assert_host_allowed, graphql_call, http_call, sql_call
@@ -189,6 +197,114 @@ class ConnectorService:
             return self.call(integration_id, method="GET", query="select 1 as ok", actor=actor)
         return self.call(integration_id, method="GET", actor=actor)
 
+    # ---- fila de saída ----------------------------------------------------
+    def enqueue(
+        self,
+        integration_id: str,
+        *,
+        method: str = "GET",
+        path: str = "",
+        query: str = "",
+        body: Any = None,
+        variables: dict | None = None,
+        headers: dict[str, str] | None = None,
+        idempotency: str | None = None,
+        max_attempts: int | None = None,
+        actor: str = "cli",
+    ) -> IntegrationJob:
+        """Promete uma chamada. Não tenta agora — quem tenta é o `drain`."""
+
+        if not self.config.queue.enabled:
+            raise ConfigError("fila de integrações desabilitada (integrations.queue.enabled)")
+        self.get(integration_id)  # conector precisa existir e estar declarado
+        job = IntegrationJob(
+            id=new_id("job"),
+            integration=integration_id,
+            method=(method or "GET").upper(),
+            path=path,
+            query=query,
+            body=body,
+            variables=variables or {},
+            headers=headers or {},
+            max_attempts=max_attempts or self.config.queue.max_attempts,
+            idempotency=idempotency,
+            actor=actor,
+        )
+        saved = self.runtime.integration_jobs.save(job)
+        self.runtime.audit.record(
+            EventType.INTEGRATION_JOB_QUEUED,
+            actor=actor,
+            environment=self.runtime.settings.environment,
+            payload={
+                "job": saved.id,
+                "conector": saved.integration,
+                "método": saved.method,
+                "idempotência": idempotency,
+            },
+        )
+        return saved
+
+    def drain(self, limit: int | None = None, *, actor: str = "runtime") -> list[dict[str, Any]]:
+        """Tenta os jobs cuja espera venceu. Falha vira espera maior, não silêncio."""
+
+        queue = self.config.queue
+        pendentes = self.runtime.integration_jobs.due(utcnow(), limit or queue.batch)
+        resultados: list[dict[str, Any]] = []
+        for job in pendentes:
+            job.status = JobStatus.RUNNING
+            job.attempts += 1
+            try:
+                call = self.call(
+                    job.integration,
+                    method=job.method,
+                    path=job.path,
+                    query=job.query,
+                    body=job.body,
+                    variables=job.variables,
+                    headers=job.headers,
+                    actor=job.actor,
+                )
+            except Exception as exc:  # conector removido entre enqueue e drain
+                call = None
+                job.last_error = str(exc)
+            if call is not None and call.ok:
+                job.status = JobStatus.DONE
+                job.call_id = call.id
+                job.last_error = ""
+                job.next_attempt = None
+            else:
+                motivo = (call.error if call is not None else job.last_error) or "falha sem motivo registrado"
+                job.last_error = motivo[:400]
+                if job.exhausted:
+                    job.status = JobStatus.FAILED
+                    job.next_attempt = None
+                    self.runtime.audit.record(
+                        EventType.INTEGRATION_JOB_FAILED,
+                        actor=actor,
+                        environment=self.runtime.settings.environment,
+                        payload={"job": job.id, "conector": job.integration, "motivo": job.last_error},
+                    )
+                else:
+                    job.status = JobStatus.PENDING
+                    job.next_attempt = utcnow() + timedelta(
+                        seconds=job.wait_seconds(
+                            base=queue.backoff_seconds, cap=queue.max_backoff_seconds
+                        )
+                    )
+            self.runtime.integration_jobs.update(job)
+            resultados.append(job.summary())
+        return resultados
+
+    def cancel(self, job_id: str, *, actor: str = "human:cli") -> IntegrationJob:
+        job = self.runtime.integration_jobs.get(job_id)
+        if job is None:
+            raise ConfigError(f"job não encontrado: {job_id}")
+        if str(job.status) == JobStatus.DONE:
+            raise ConfigError(f"job {job_id} já foi executado")
+        job.status = JobStatus.CANCELLED
+        job.next_attempt = None
+        return self.runtime.integration_jobs.update(job)
+
     # ---- entrada (webhook) ---------------------------------------------
     def receive(
         self,
@@ -298,6 +414,13 @@ class ConnectorService:
             "eventos": {
                 "total": self.runtime.integration_events.count(),
                 "recentes": [event.summary() for event in events[:5]],
+            },
+            "fila": {
+                "habilitada": bool(self.config.queue.enabled),
+                "tentativas": self.config.queue.max_attempts,
+                "espera_base": f"{self.config.queue.backoff_seconds}s",
+                "por_status": self.runtime.integration_jobs.stats(),
+                "recentes": [job.summary() for job in self.runtime.integration_jobs.list(limit=5)],
             },
         }
 
@@ -478,6 +601,9 @@ class ConnectorService:
 
     def _has_trigger(self, event_type: str) -> bool:
         """Existe workflow declarado para este evento? Entrada vira trabalho só assim."""
+
+        # import local: `egr.runtime` importa este módulo (ida e volta circular)
+        from ..runtime.triggers import matches as matches_pattern
 
         for workflow in getattr(self.runtime, "workflows", {}).values():
             trigger = getattr(workflow, "trigger", None)

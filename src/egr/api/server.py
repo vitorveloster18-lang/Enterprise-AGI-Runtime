@@ -74,6 +74,17 @@ class ProposalDecision(BaseModel):
     timeout: int = 10
 
 
+class IntegrationJobRequest(BaseModel):
+    method: str = "GET"
+    path: str = ""
+    query: str = ""
+    body: str | None = None
+    variables: dict[str, Any] = {}
+    idempotency: str | None = None
+    max_attempts: int | None = None
+    by: str = "human:api"
+
+
 class IntegrationCallRequest(BaseModel):
     method: str = "GET"
     path: str = ""
@@ -713,6 +724,48 @@ def create_app(runtime: Runtime) -> FastAPI:
         """O que saiu daqui: destino, decisão, latência, custo e ator."""
 
         return [call.summary() for call in runtime.integration_calls.list(integration=integration, limit=limit)]
+
+    @app.get("/v1/integrations/jobs", tags=["integrations"])
+    def integration_jobs(status: str | None = None, integration: str | None = None, limit: int = 20):
+        """Fila de saída: o que está prometido, o que falhou e por quê."""
+
+        return [
+            job.summary()
+            for job in runtime.integration_jobs.list(status=status, integration=integration, limit=limit)
+        ]
+
+    @app.post("/v1/integrations/{integration_id}/jobs", tags=["integrations"])
+    def integration_enqueue(integration_id: str, request: IntegrationJobRequest) -> dict[str, Any]:
+        """Enfileira uma chamada (idempotente por chave). O drain executa."""
+
+        try:
+            job = runtime.connectors.enqueue(
+                integration_id,
+                method=request.method,
+                path=request.path,
+                query=request.query,
+                body=request.body,
+                variables=request.variables,
+                idempotency=request.idempotency,
+                max_attempts=request.max_attempts,
+                actor=request.by,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return job.summary()
+
+    @app.post("/v1/integrations/jobs/drain", tags=["integrations"])
+    def integration_drain(limit: int | None = None) -> list[dict[str, Any]]:
+        """Processa os jobs cuja espera venceu."""
+
+        return runtime.connectors.drain(limit)
+
+    @app.delete("/v1/integrations/jobs/{job_id}", tags=["integrations"])
+    def integration_cancel(job_id: str) -> dict[str, Any]:
+        try:
+            return runtime.connectors.cancel(job_id, actor="human:api").summary()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/v1/integrations/events", tags=["integrations"])
     def integration_events(integration: str | None = None, limit: int = 20) -> list[dict[str, Any]]:

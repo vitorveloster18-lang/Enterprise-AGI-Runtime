@@ -1,7 +1,10 @@
 # Fase 12 — Vertical Packs
 
-**Status:** em construção (2026-09). Parte 1 (catálogo e instalação governada)
-entregue · Parte 2 (fila de saída com retry/backoff) fecha a lacuna 11b.
+**Status:** concluída (2026-09). 401 testes · `ruff` limpo · migrações
+`011_packs.sql` e `012_integration_jobs.sql`.
+
+Parte 1 — catálogo de packs verticais instalado por proposta.
+Parte 2 — fila de saída com retry e espera crescente (fecha a lacuna 11b).
 
 O Runtime já sabia governar trabalho, gente (Fase 10) e sistemas (Fase 11). O que
 faltava era o óbvio incômodo: **cada empresa começa do zero**. Um pack é o começo
@@ -184,17 +187,60 @@ egr proposal approve <id> --by human:vitor && egr proposal apply <id> --by human
 egr pack status
 ```
 
-## 10. Lacunas declaradas
+## 10. Parte 2 — fila de saída (lacuna 11b)
+
+Sistema alheio falha; o Runtime não esquece. Chamada direta não sobrevive a um
+503: agora o pedido pode entrar na fila.
+
+```
+egr integration enqueue CRM /pedidos -X POST -d '{"valor":10}' -k pedido-42
+egr integration drain                 # processa o que já pode ser tentado
+egr integration jobs                  # pendentes, feitos e falhos
+egr integration cancel <job>          # cancela o que ainda não saiu
+```
+
+| regra | comportamento |
+| --- | --- |
+| idempotência | `(conector, chave)` único no banco: reentrega não duplica |
+| tentativas | `integrations.queue.max_attempts` (padrão 3) |
+| espera | crescente: `base * 2^(tentativa-1)`, com teto (`30s` → `60s` → `120s`, teto `3600s`) |
+| janela | `drain` só pega job cuja espera venceu |
+| esgotou | status `failed` com o motivo + evento `integration.job_failed` |
+| cancelar | humano cancela o que ainda não saiu (`cancelled`) |
+| saúde | `egr doctor` alerta `integracoes:fila` quando há job esgotado |
+
+Cada tentativa passa pelo mesmo caminho de sempre: pré-verificação do conector
+(habilitado, host, método, leitura) e **política** (`integration.call`) — a fila
+não é um atalho para fora do governo, é só uma espera organizada.
+
+Configuração:
+
+```yaml
+integrations:
+  queue:
+    enabled: true
+    max_attempts: 3
+    backoff_seconds: 30      # dobra a cada falha
+    max_backoff_seconds: 3600
+    batch: 10                # jobs por `drain`
+```
+
+API: `POST /v1/integrations/{id}/jobs` · `GET /v1/integrations/jobs` ·
+`POST /v1/integrations/jobs/drain` · `DELETE /v1/integrations/jobs/{id}`.
+
+## 11. Lacunas declaradas
 
 | lacuna | nota |
 | --- | --- |
-| Fila de saída com retry/backoff | lacuna 11b — parte 2 desta fase |
+| Fila **durável** com agendador | `drain` é chamado por CLI/API; não há dreno automático em background |
+| Transação distribuída | não há compensação automática em sistema alheio |
 | Atualização de pack instalado | hoje reinstalar reescreve; não há migração de conteúdo editado |
 | Pack com ferramenta (código) | packs entregam declaração, não `tools/*.py`: código continua entrando por proposta com prova em sandbox |
 | Dependência entre packs | não há composição (`requires.packs`); cada pack é independente |
 
-## 11. Decisões
+## 12. Decisões
 
 ADR-043 (pack entra por proposta) · ADR-044 (catálogo é código, workspace
-sobrepõe) · ADR-045 (remoção preserva o que foi editado) — em
+sobrepõe) · ADR-045 (remoção preserva o que foi editado) · ADR-046 (fila: promessa
+registrada, espera crescente e desistência visível) — em
 [`docs/DECISIONS.md`](DECISIONS.md).

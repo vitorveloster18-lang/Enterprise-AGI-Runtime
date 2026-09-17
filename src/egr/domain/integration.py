@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..core.timeutil import utcnow
-from .enums import IntegrationEventStatus, IntegrationKind
+from .enums import IntegrationEventStatus, IntegrationKind, JobStatus
 
 READ_METHODS = ("GET", "HEAD", "OPTIONS")
 #: operações normalizadas que não mudam nada em sistema alheio
@@ -183,4 +183,60 @@ class InboundEvent(BaseModel):
         }
 
 
-__all__ = ["READ_METHODS", "AuthConfig", "InboundConfig", "InboundEvent", "Integration", "IntegrationCall"]
+class IntegrationJob(BaseModel):
+    """Uma chamada que o Runtime prometeu fazer — e vai tentar de novo."""
+
+    id: str
+    integration: str
+    method: str = "GET"
+    path: str = ""
+    query: str = ""
+    body: Any = None
+    variables: dict = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
+    status: JobStatus = JobStatus.PENDING
+    attempts: int = 0
+    max_attempts: int = 3
+    next_attempt: datetime | None = None
+    last_error: str = ""
+    call_id: str | None = None
+    idempotency: str | None = None
+    actor: str = "cli"
+    created_at: datetime | None = Field(default_factory=utcnow)
+    updated_at: datetime | None = Field(default_factory=utcnow)
+
+    @property
+    def exhausted(self) -> bool:
+        return self.attempts >= self.max_attempts
+
+    def wait_seconds(self, *, base: int = 30, cap: int = 3600) -> int:
+        """Espera crescente: 1ª falha espera mais que nenhuma, e há teto."""
+
+        return min(base * (2 ** max(0, self.attempts - 1)), cap)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "conector": self.integration,
+            "método": self.method,
+            "destino": self.path or self.query or "-",
+            "status": str(self.status),
+            "tentativas": f"{self.attempts}/{self.max_attempts}",
+            "próxima": self.next_attempt.isoformat() if self.next_attempt else "-",
+            "chamada": self.call_id or "-",
+            "idempotência": self.idempotency or "-",
+            "erro": self.last_error or "-",
+            "quando": quando(self.created_at),
+        }
+
+
+__all__ = [
+    "READ_METHODS",
+    "AuthConfig",
+    "InboundConfig",
+    "InboundEvent",
+    "Integration",
+    "IntegrationCall",
+    "IntegrationJob",
+]
+

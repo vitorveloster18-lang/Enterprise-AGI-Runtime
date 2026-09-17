@@ -4,7 +4,7 @@
 #   init -> status -> doctor -> task (dev) -> task (production, approval)
 #   -> approval approve -> tools/MCP -> segurança (identidade, RBAC, cofre)
 #   -> orquestração -> desenvolvimento -> avaliação -> release -> canais
-#   -> integrações -> audit verify -> memory search
+#   -> integrações -> packs verticais -> audit verify -> memory search
 #
 # Uso: bash scripts/demo.sh [diretório do workspace]
 set -euo pipefail
@@ -156,7 +156,7 @@ fi
 "$EGR_BIN" release versions workflow invoice-processing || true
 "$EGR_BIN" release list || true
 
-step "15/17 · Fase 10 — Remote Control (gateway, pareamento, mensagem governada)"
+step "15/19 · Fase 10 — Remote Control (gateway, pareamento, mensagem governada)"
 # o gateway nasce desligado (default deny): o demo liga para mostrar os dois lados
 HABILITADO="$(mktemp)"
 awk '/^gateway:/{g=1} g && /^  enabled:/ {print "  enabled: true"; g=0; next} {print}' \
@@ -173,7 +173,7 @@ fi
 "$EGR_BIN" gateway bindings || true
 "$EGR_BIN" gateway messages || true
 
-step "16/17 · Fase 11 — Integrações (conector declarado, chamada governada)"
+step "16/19 · Fase 11 — Integrações (conector declarado, chamada governada)"
 "$EGR_BIN" integration sync
 "$EGR_BIN" integration list || true
 "$EGR_BIN" integration enable WAREHOUSE --by human:vitor
@@ -182,7 +182,25 @@ step "16/17 · Fase 11 — Integrações (conector declarado, chamada governada)
 "$EGR_BIN" integration calls || true
 "$EGR_BIN" integration events || true
 
-step "17/17 · auditoria e memória"
+step "17/19 · Fase 12 — Packs verticais (catálogo, proposta, instalação)"
+"$EGR_BIN" pack list || true
+"$EGR_BIN" pack show finance || true
+"$EGR_BIN" pack check finance || true
+PACK=$("$EGR_BIN" pack install finance --by human:vitor --json 2>/dev/null | sed -n 's/.*"id": "\(prp_[a-z0-9_]*\)".*/\1/p' | head -1)
+if [ -n "$PACK" ]; then
+  "$EGR_BIN" proposal approve "$PACK" --by human:vitor || true
+  "$EGR_BIN" proposal apply "$PACK" --by human:vitor || true
+fi
+"$EGR_BIN" pack status || true
+
+step "18/19 · Fase 12 — Fila de saída (promessa, espera crescente, desistência)"
+"$EGR_BIN" integration enable WAREHOUSE --by human:vitor || true
+"$EGR_BIN" integration enqueue WAREHOUSE "" --query "select count(*) as total from tasks" -k demo-fila || true
+"$EGR_BIN" integration jobs || true
+"$EGR_BIN" integration drain || true
+"$EGR_BIN" integration jobs || true
+
+step "19/19 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

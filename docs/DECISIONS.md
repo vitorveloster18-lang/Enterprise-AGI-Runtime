@@ -787,3 +787,22 @@ lista o que foi mantido por ter mudado.
 
 **Consequências:** remover é reversível na prática e auditável; o custo é que
 “desinstalar” pode deixar sobras — e elas são ditas em voz alta.
+
+---
+
+## ADR-046 · Fila de saída: promessa registrada, espera crescente, desistência visível
+
+**Status:** aceita (Fase 12).
+
+**Contexto:** chamada direta a sistema externo perde o pedido quando ele está
+fora do ar — e repetir na mão é o jeito clássico de duplicar efeito.
+
+**Decisão:** `enqueue` grava um job (idempotente por `(conector, chave)`, índice
+único) e **não executa**. `drain` pega só os jobs cuja espera venceu, tenta pelo
+mesmo caminho governado (pré-verificação + política) e, falhando, aumenta a
+espera em progressão geométrica com teto. Esgotadas as tentativas, o job vira
+`failed` com motivo e evento na trilha — nunca silêncio.
+
+**Consequências:** o pedido sobrevive ao 503 e a reentrega não duplica; o custo é
+um processo a mais para rodar (`egr integration drain`), porque o Runtime não sai
+chamando sistema alheio sozinho.

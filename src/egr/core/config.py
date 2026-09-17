@@ -190,6 +190,19 @@ class GatewayConfig(BaseModel):
     channels: list[ChannelConfig] = Field(default_factory=list)
 
 
+class IntegrationQueueConfig(BaseModel):
+    """Fila de saída: sistema alheio falha, o Runtime tenta de novo com medida."""
+
+    enabled: bool = True
+    max_attempts: int = 3
+    #: espera base (segundos), dobrando a cada falha
+    backoff_seconds: int = 30
+    #: teto da espera: ninguém espera para sempre em silêncio
+    max_backoff_seconds: int = 3600
+    #: quantos jobs um `drain` processa por vez
+    batch: int = 10
+
+
 class IntegrationsConfig(BaseModel):
     """Fase 11: conectores declarados em `integrations/*.yaml`."""
 
@@ -202,6 +215,7 @@ class IntegrationsConfig(BaseModel):
     redact: bool = True
     #: permitir drivers SQL além do sqlite (declarado, nunca implícito)
     allow_sql_drivers: list[str] = Field(default_factory=lambda: ["sqlite"])
+    queue: IntegrationQueueConfig = Field(default_factory=IntegrationQueueConfig)
 
 
 class SecurityConfig(BaseModel):

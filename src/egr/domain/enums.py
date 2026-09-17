@@ -122,6 +122,9 @@ class EventType(BaseStrEnum):
     INTEGRATION_EVENT_RECEIVED = "integration.event_received"
     INTEGRATION_EVENT_REJECTED = "integration.event_rejected"
     # pacotes verticais (Fase 12): instalados por proposta, nunca por atalho
+    # fila de saída (Fase 12): sistema alheio falha, o Runtime não esquece
+    INTEGRATION_JOB_QUEUED = "integration.job_queued"
+    INTEGRATION_JOB_FAILED = "integration.job_failed"
     PACK_INSTALLED = "pack.installed"
     PACK_REMOVED = "pack.removed"
     PACK_DENIED = "pack.denied"
@@ -191,6 +194,16 @@ class StepRunStatus(BaseStrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     CANCELLED = "cancelled"
+
+
+class JobStatus(BaseStrEnum):
+    """Um job de saída: onde ele está na fila."""
+
+    PENDING = "pending"      # esperando a vez (ou a espera crescente)
+    RUNNING = "running"      # tentativa em andamento
+    DONE = "done"            # chamada executada
+    FAILED = "failed"        # esgotou as tentativas: motivo registrado
+    CANCELLED = "cancelled"  # humano cancelou
 
 
 class PackStatus(BaseStrEnum):

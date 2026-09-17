@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 11 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control e Enterprise Integrations) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 12 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control, Enterprise Integrations e Vertical Packs) · Python-first.
 
 ---
 
@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 335 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook) |
+| Testes | `tests/` | 401 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais e fila de saída) |
 
 ## 6. Comandos principais
 
@@ -395,6 +395,25 @@ aprovação; recusa é fato registrado. Webhook de entrada é assinado (HMAC),
 idempotente por id e **não executa nada**: só um gatilho de workflow declarado
 transforma evento em trabalho.
 
+## 5.10 Vertical Packs (Fase 12)
+
+```bash
+egr pack list | show finance | check finance        # catálogo (7 verticais)
+egr pack install finance --by human:vitor           # cria a proposta
+egr proposal approve <id> && egr proposal apply <id> # governo da Fase 7
+egr pack status | remove finance --yes
+```
+
+Finanças, Contabilidade, Vendas, Operações, RH, Marketing e Suporte entram como
+**começo**, não como privilégio: cada pack traz agente, workflow, política,
+conector, suíte de avaliação e documento — e passa por verificação, proposta e
+aprovação humana antes de escrever qualquer arquivo. Remover preserva o que foi
+editado depois da instalação.
+
+Fila de saída (fecha a lacuna de integrações): `egr integration enqueue|drain|jobs|cancel`
+com idempotência por chave, tentativas com espera crescente (30s → 60s → 120s,
+com teto) e desistência registrada — o pedido sobrevive ao 503 sem duplicar efeito.
+
 ## 6.1 Custo e orçamento (Fase 2)
 
 ```yaml
@@ -462,6 +481,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE9_GOVERNANCE.md`](docs/PHASE9_GOVERNANCE.md) — Fase 9 (release, gates de promoção, versão por snapshot, rollback)
 - [`docs/PHASE10_REMOTE_CONTROL.md`](docs/PHASE10_REMOTE_CONTROL.md) — Fase 10 (gateway de canais, pareamento, comandos)
 - [`docs/PHASE11_INTEGRATIONS.md`](docs/PHASE11_INTEGRATIONS.md) — Fase 11 (conectores REST/GraphQL/SQL/webhook, política por operação, eventos idempotentes)
+- [`docs/PHASE12_VERTICAL_PACKS.md`](docs/PHASE12_VERTICAL_PACKS.md) — Fase 12 (packs verticais por proposta e fila de saída com retry)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 
