@@ -927,3 +927,44 @@ reprova.
 
 **Consequências:** o número descreve o sistema real, inclusive suas travas; o
 custo é que "capacidade teórica" nunca aparece — de propósito.
+
+---
+
+## ADR-053 · Assinatura é sobre conteúdo, e usa a chave que a empresa já tem
+
+**Status:** aceita (Fase 13, lacuna 9b).
+
+**Contexto:** aprovação por nome — "pode subir o agente X" — não protege nada se
+o conteúdo mudar entre a aprovação e o deploy. Uma assinatura resolve, mas
+introduzir uma nova infraestrutura de chaves em V1 é um projeto à parte.
+
+**Decisão:** o release carrega um manifesto canônico (itens, versões, revisões,
+impressões, ambientes e evidência) e a assinatura é `HMAC-SHA256` desse
+manifesto com a **chave mestra do workspace** — a mesma do cofre de segredos.
+Só o `key_id` aparece no release. A barreira fica no `deploy`, para ambientes
+listados em `release.signature_environments`; nos gates ela aparece como aviso
+enquanto o release ainda está sendo montado.
+
+**Consequências:** nenhuma chave nova para operar, e rotação de chave invalida
+assinaturas antigas de forma explícita (a verificação diz "assinado com outra
+chave"). O custo é honesto: a garantia é de integridade dentro do workspace, não
+de não-repúdio externo — assinatura destacada e PKI ficam para depois.
+
+---
+
+## ADR-054 · Quórum: produção é decisão de mais de uma pessoa
+
+**Status:** aceita (Fase 13, lacuna 9b).
+
+**Contexto:** um voto destrava a promoção mais perigosa do sistema. Quórum parece
+burocracia até o dia em que uma conta comprometida promove sozinha.
+
+**Decisão:** `release.min_approvals` (padrão 1) e `release.min_approvals_production`
+(padrão 2). Cada voto é registrado com ator e papéis; ninguém vota duas vezes;
+com quórum de mais de um, o autor do release não conta para o próprio quórum;
+recusa é veto e bloqueia. Enquanto falta voto, o release segue `submitted` —
+`deploy` não aceita release sem quórum porque `deploy` só aceita `approved`.
+
+**Consequências:** promover para produção passa a exigir duas pessoas, e o fluxo
+antigo (uma pessoa) continua valendo para staging. O custo é operacional: em
+produção, uma promoção agora precisa de combinado — que é exatamente a intenção.

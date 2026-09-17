@@ -177,6 +177,22 @@ class ChannelConfig(BaseModel):
     webhook_secret_env: str = ""
 
 
+class ReleasePolicyConfig(BaseModel):
+    """Lacuna 9b: promoção assinada e com quórum — prometer não é promover."""
+
+    #: ambientes que exigem assinatura válida antes de aplicar
+    signature_environments: list[str] = Field(default_factory=lambda: ["production"])
+    #: votos exigidos (1 = uma pessoa decide, como era antes)
+    min_approvals: int = 1
+    #: votos exigidos quando o destino é produção
+    min_approvals_production: int = 2
+    #: papéis que podem votar (além de precisar de release.promote)
+    approver_roles: list[str] = Field(default_factory=lambda: ["approver", "security_admin", "operator"])
+    #: com quórum de mais de uma pessoa, quem criou o release não conta para o
+    #: próprio quórum (uma pessoa sozinha não fecha dois votos)
+    allow_self_approval: bool = False
+
+
 class GatewayAttachmentsConfig(BaseModel):
     """Lacuna 10b: anexo é conteúdo — entra por lista branca e fica no workspace.
 
@@ -344,6 +360,8 @@ class EGRConfig(BaseModel):
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
+    #: lacuna 9b: promoção entre ambientes (assinatura e quórum)
+    release: ReleasePolicyConfig = Field(default_factory=ReleasePolicyConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
@@ -446,6 +464,7 @@ __all__ = [
     "PathsConfig",
     "PricingConfig",
     "ProviderConfig",
+    "ReleasePolicyConfig",
     "RuntimeConfig",
     "SandboxConfig",
     "SecurityConfig",

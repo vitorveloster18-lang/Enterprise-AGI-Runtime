@@ -156,7 +156,18 @@ fi
 "$EGR_BIN" release versions workflow invoice-processing || true
 "$EGR_BIN" release list || true
 
-step "15/22 · Fase 10 — Remote Control (gateway, pareamento, mensagem governada)"
+step "15/23 · Lacuna 9b — promoção assinada e com quórum"
+RELEASE_ID=$("$EGR_BIN" release create workflow:invoice-processing --to staging --reason "demo 9b" | sed -n 's/.*\(rel_[A-Za-z0-9_]*\).*/\1/p' | head -1)
+if [ -n "$RELEASE_ID" ]; then
+  "$EGR_BIN" release submit "$RELEASE_ID" || true
+  # staging: um voto basta. produção exigiria dois, de pessoas diferentes.
+  "$EGR_BIN" release approve "$RELEASE_ID" --by human:vitor --note "demo" || true
+  "$EGR_BIN" release approvals "$RELEASE_ID" || true
+  "$EGR_BIN" release sign "$RELEASE_ID" --by human:vitor || true
+  "$EGR_BIN" release verify "$RELEASE_ID" || true
+fi
+
+step "16/23 · Fase 10 — Remote Control (gateway, pareamento, mensagem governada)"
 # o gateway nasce desligado (default deny): o demo liga para mostrar os dois lados
 HABILITADO="$(mktemp)"
 awk '/^gateway:/{g=1} g && /^  enabled:/ {print "  enabled: true"; g=0; next} {print}' \
@@ -173,7 +184,7 @@ fi
 "$EGR_BIN" gateway bindings || true
 "$EGR_BIN" gateway messages || true
 
-step "16/22 · Fase 11 — Integrações (conector declarado, chamada governada)"
+step "17/23 · Fase 11 — Integrações (conector declarado, chamada governada)"
 "$EGR_BIN" integration sync
 "$EGR_BIN" integration list || true
 "$EGR_BIN" integration enable WAREHOUSE --by human:vitor
@@ -182,7 +193,7 @@ step "16/22 · Fase 11 — Integrações (conector declarado, chamada governada)
 "$EGR_BIN" integration calls || true
 "$EGR_BIN" integration events || true
 
-step "17/22 · Fase 12 — Packs verticais (catálogo, proposta, instalação)"
+step "18/23 · Fase 12 — Packs verticais (catálogo, proposta, instalação)"
 "$EGR_BIN" pack list || true
 "$EGR_BIN" pack show finance || true
 "$EGR_BIN" pack check finance || true
@@ -193,14 +204,14 @@ if [ -n "$PACK" ]; then
 fi
 "$EGR_BIN" pack status || true
 
-step "18/22 · Fase 12 — Fila de saída (promessa, espera crescente, desistência)"
+step "19/23 · Fase 12 — Fila de saída (promessa, espera crescente, desistência)"
 "$EGR_BIN" integration enable WAREHOUSE --by human:vitor || true
 "$EGR_BIN" integration enqueue WAREHOUSE "" --query "select count(*) as total from tasks" -k demo-fila || true
 "$EGR_BIN" integration jobs || true
 "$EGR_BIN" integration drain || true
 "$EGR_BIN" integration jobs || true
 
-step "19/22 · Lacuna 10b — anexos entram governados, botões viram comando"
+step "20/23 · Lacuna 10b — anexos entram governados, botões viram comando"
 printf 'cliente: ACME\nvalor: 1200,00\nvencimento: 2026-10-01\n' > "$WORKSPACE/entrada.txt"
 printf 'MZ\x00' > "$WORKSPACE/suspeito.exe"
 "$EGR_BIN" gateway upload web demo "$WORKSPACE/entrada.txt" --text "classifique este anexo" || true
@@ -216,7 +227,7 @@ if [ -n "$CAMINHO" ]; then
 fi
 "$EGR_BIN" gateway interact web demo ajuda || true
 
-step "20/22 · Lacuna 12b — worker da fila e atualização de pack"
+step "21/23 · Lacuna 12b — worker da fila e atualização de pack"
 "$EGR_BIN" integration enqueue WAREHOUSE "" --query "select 1 as ok" -k demo-worker || true
 "$EGR_BIN" integration worker --interval 1 --rounds 2 || true
 "$EGR_BIN" integration jobs || true
@@ -233,7 +244,7 @@ if [ -f "$WORKSPACE/agents/cashflow-agent.yaml" ]; then
   "$EGR_BIN" pack status || true
 fi
 
-step "21/22 · Lacuna 8b — laboratório (qualidade e carga)"
+step "22/23 · Lacuna 8b — laboratório (qualidade e carga)"
 SUITE=$("$EGR_BIN" eval list --json 2>/dev/null | sed -n 's/.*"id": "\([a-z0-9._-]*\)".*/\1/p' | head -1)
 if [ -n "$SUITE" ]; then
   "$EGR_BIN" eval judge "$SUITE" --method similaridade || true
@@ -244,7 +255,7 @@ else
   echo "nenhuma suíte registrada ainda"
 fi
 
-step "22/22 · auditoria e memória"
+step "23/23 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

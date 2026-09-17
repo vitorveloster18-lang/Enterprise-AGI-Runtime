@@ -207,3 +207,62 @@ egr eval loads                # histórico
 **O que continua fora:** teste distribuído (uma máquina só), perfis de memória
 por thread e comparação automática entre modelos sem suíte declarada — o
 laboratório mede o que a empresa escreveu, não adivinha o que ela quer.
+
+---
+
+## 4. Lacuna 9b — Promoção assinada e com quórum
+
+A Fase 9 já impedia promoção automática: alguém com o papel certo aprovava.
+Faltava responder duas perguntas que só aparecem quando dá errado:
+
+1. **o que foi aprovado é o que foi aplicado?**
+2. **uma pessoa sozinha pode promover o que afeta todo mundo?**
+
+### 4.1 Assinatura do manifesto (`egr release sign|verify`)
+
+```bash
+egr release sign <release> --by human:vitor     # assina o conteúdo
+egr release verify <release>                    # confere (sai com 1 se inválida)
+```
+
+A assinatura cobre o **manifesto canônico** do release: itens, tipo, versão,
+revisão, impressão digital, ambientes de origem/destino e evidência. É
+`HMAC-SHA256` do manifesto com a **chave mestra do workspace** — a mesma do
+cofre de segredos. Nenhuma chave nova para guardar, nenhum segredo no release:
+só o `key_id` (impressão da chave) aparece.
+
+Mudou o release depois de assinado? A verificação diz qual impressão esperava e
+qual encontrou (`mudou depois de assinado`). Rotacionou a chave? Diz que foi
+assinado com outra chave. Assinatura falsificada? `assinatura não confere`.
+
+Onde ela barra: `deploy` de ambiente que exige assinatura (`release.signature_environments`,
+padrão `["production"]`) recusa com o motivo e o comando que resolve.
+
+### 4.2 Quórum de aprovação (`egr release approvals`)
+
+| Situação | Votos exigidos |
+|---|---|
+| staging (ou qualquer não-produção) | `release.min_approvals` — padrão **1** |
+| produção | `release.min_approvals_production` — padrão **2** |
+
+- cada voto guarda ator, papéis na hora do voto, nota e hora;
+- **ninguém vota duas vezes**;
+- com quórum de mais de um, **quem criou o release não conta** para o próprio
+  quórum — dois votos exigem duas pessoas;
+- **recusa é veto**: fica no histórico e o quórum nunca fecha;
+- enquanto falta voto, o release continua `submitted` e o CLI mostra
+  `rel_x com 1 de 2 votos — faltam 1`.
+
+### 4.3 Aprovar uma coisa e aplicar outra
+
+Além da assinatura, o `deploy` confere o **manifesto aprovado**: o hash votado é
+guardado em `metadata.manifesto_aprovado`; se o release mudar depois da
+aprovação, a promoção é recusada com `mudou depois da aprovação`, mesmo com
+assinatura válida.
+
+### 4.4 O que continua fora
+
+Assinatura destacada (chave fora da máquina), infraestrutura de chaves pública
+(PKI/certificados) e quórum por papel específico (ex.: "um voto tem de ser do
+time de segurança"). Tudo configurável depois; nada disso é necessário para
+garantir que **conteúdo aprovado é conteúdo aplicado**.

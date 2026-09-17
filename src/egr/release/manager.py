@@ -19,9 +19,10 @@ from ..core.errors import AuthenticationError, AuthorizationError, ConfigError
 from ..core.ids import new_id
 from ..core.timeutil import utcnow
 from ..domain.enums import Environment, EventType, ReleaseStatus
-from ..domain.release import Release, ReleaseItem, rank
+from ..domain.release import Release, ReleaseApproval, ReleaseItem, rank
 from ..security.rbac import RELEASE_PROMOTE, has_permission, role_satisfies
 from .gates import evaluate
+from .signature import manifest_hash
 from .versions import VersionStore
 
 ENVIRONMENTS = ("staging", "production")
@@ -157,6 +158,30 @@ class ReleaseManager:
         )
         return saved
 
+    # ---- lacuna 9b: quórum --------------------------------------------
+    def quorum(self, release: Release) -> dict[str, Any]:
+        """Quantos votos faltam — e quem já votou."""
+
+        policy = self.runtime.settings.config.release
+        required = policy.min_approvals_production if release.production else policy.min_approvals
+        # quórum de um: quem criou pode aprovar (sempre foi humano decidindo).
+        # quórum de mais de um: o autor não conta — dois votos exigem duas pessoas.
+        exclude_author = required > 1 and not policy.allow_self_approval
+        counted = release.approvers(exclude_author=exclude_author)
+        return {
+            "release": release.id,
+            "destino": str(release.target),
+            "exigido": required,
+            "obtido": len(counted),
+            "aprovadores": counted,
+            "vetos": [item.actor for item in release.vetoes],
+            "completo": len(counted) >= required and not release.vetoes,
+            "criado_por": release.created_by,
+        }
+
+    def approvals(self, release_id: str) -> list[Release]:
+        raise NotImplementedError
+
     def approve(
         self,
         release_id: str,
@@ -165,19 +190,63 @@ class ReleaseManager:
         token: str | None = None,
         note: str = "",
     ) -> Release:
-        """Aprovação humana. Produção exige papel mais alto que staging."""
+        """Voto na promoção. Com quórum, um voto não basta — e é isso o bom.
+
+        O voto é registrado com nome e papéis de quem votou. Enquanto o quórum
+        não fecha, o release continua `submitted`: ninguém aplica no escuro.
+        """
 
         release = self.get(release_id)
         if release.status != ReleaseStatus.SUBMITTED:
             raise ConfigError(f"release {release.id} está {release.status}: nada a aprovar")
 
         decisor = self._authorize(release, actor, token)
+        policy = self.runtime.settings.config.release
+
+        voter = decisor.replace("human:", "") or decisor
+        already = next((item for item in release.approvals if item.actor == voter), None)
+        if already is not None:
+            raise ConfigError(f"'{decisor}' já votou neste release ({already.decision})")
+
+        principal = self.runtime.identity.resolve(token) if token else self.runtime.identity.resolve(
+            decisor.replace("human:", "")
+        )
+        roles = sorted(getattr(principal, "roles", []) or [])
+        if policy.approver_roles and roles and not set(roles) & set(policy.approver_roles):
+            raise AuthorizationError(
+                f"'{decisor}' tem papéis {roles}, mas votar promoção exige um de {sorted(policy.approver_roles)}"
+            )
+
+        release.approvals.append(
+            ReleaseApproval(release_id=release.id, actor=voter, decision="approved", roles=roles, note=note)
+        )
+        release.updated_at = utcnow()
+        self.runtime.audit.record(
+            EventType.RELEASE_APPROVAL_RECORDED,
+            actor=decisor,
+            environment=str(release.target),
+            payload={
+                "release": release.id,
+                "decisão": "approved",
+                "papéis": roles,
+                "quórum": self.quorum(release),
+            },
+        )
+
+        state = self.quorum(release)
+        if not state["completo"]:
+            saved = self._save(release)
+            saved.metadata["quórum"] = state
+            return self._save(saved)
+
+        release.metadata["manifesto_aprovado"] = manifest_hash(release)
         release.status = ReleaseStatus.APPROVED
-        release.decided_by = decisor
+        release.decided_by = ", ".join(state["aprovadores"])
         release.decided_at = utcnow()
         release.decision_note = note or None
-        release.updated_at = utcnow()
         saved = self._save(release)
+        saved.metadata["quórum"] = state
+        saved = self._save(saved)
         self.runtime.audit.record(
             EventType.RELEASE_APPROVED,
             actor=decisor,
@@ -186,16 +255,49 @@ class ReleaseManager:
                 "release": saved.id,
                 "itens": [item.key for item in saved.items],
                 "note": note,
+                "aprovadores": state["aprovadores"],
+                "quórum": state["exigido"],
                 "identidade_verificada": decisor != actor.replace("human:", ""),
             },
         )
         return saved
+
+    # ---- lacuna 9b: assinatura -----------------------------------------
+    def sign(self, release_id: str, *, actor: str = "human:cli") -> Release:
+        """Assina o manifesto do release (conteúdo, não intenção)."""
+
+        from .signature import sign as sign_release
+
+        release = self.get(release_id)
+        if release.status in (ReleaseStatus.DRAFT, ReleaseStatus.REJECTED, ReleaseStatus.ROLLED_BACK):
+            raise ConfigError(f"release {release.id} está {release.status}: nada a assinar")
+        sign_release(self.runtime, release, actor=actor)
+        release.updated_at = utcnow()
+        return self._save(release)
+
+    def verify(self, release_id: str) -> dict[str, Any]:
+        from .signature import verify as verify_release
+
+        release = self.get(release_id)
+        valid, detail = verify_release(self.runtime, release)
+        return {
+            "release": release.id,
+            "válida": valid,
+            "detalhe": detail,
+            "assinatura": release.signature.summary() if release.signature else None,
+            "quórum": self.quorum(release),
+        }
 
     def reject(self, release_id: str, actor: str = "human:cli", note: str = "") -> Release:
         release = self.get(release_id)
         if release.status in (ReleaseStatus.DEPLOYED, ReleaseStatus.ROLLED_BACK):
             raise ConfigError(f"release {release.id} está {release.status}: não dá mais para recusar")
 
+        # lacuna 9b: recusa é veto e fica registrada no histórico de votos
+        name = actor.replace("human:", "")
+        release.approvals.append(
+            ReleaseApproval(release_id=release.id, actor=name, decision="rejected", note=note)
+        )
         release.status = ReleaseStatus.REJECTED
         release.decided_by = actor
         release.decided_at = utcnow()
@@ -206,7 +308,7 @@ class ReleaseManager:
             EventType.RELEASE_REJECTED,
             actor=actor,
             environment=str(saved.target),
-            payload={"release": saved.id, "note": note},
+            payload={"release": saved.id, "note": note, "vetos": len(saved.vetoes)},
         )
         return saved
 
@@ -218,6 +320,8 @@ class ReleaseManager:
             raise ConfigError(f"release {release.id} está {release.status}: só aprovados são aplicados")
         if not release.clear:
             raise ConfigError("gates reprovaram depois da aprovação: reavalie antes de aplicar")
+
+        self._verify_promotion(release)
 
         target = str(release.target)
         for item in release.items:
@@ -248,6 +352,33 @@ class ReleaseManager:
             },
         )
         return saved
+
+    def _verify_promotion(self, release: Release) -> None:
+        """Lacuna 9b: só aplica o que foi assinado — e o que foi aprovado.
+
+        Duas barreiras, ambas sobre conteúdo:
+        1. ambientes exigidos têm que ter assinatura válida;
+        2. o manifesto não pode ter mudado depois do voto (aprovar uma coisa e
+           aplicar outra é o clássico acidente de governança).
+        """
+
+        from .signature import verify as verify_release
+
+        approved = release.metadata.get("manifesto_aprovado")
+        if approved and approved != manifest_hash(release):
+            raise ConfigError(
+                f"release {release.id} mudou depois da aprovação: o manifesto aprovado era "
+                f"{approved[:12]} e agora é {manifest_hash(release)[:12]} — reavalie e aprove de novo"
+            )
+        required = [str(item) for item in self.runtime.settings.config.release.signature_environments]
+        if str(release.target) not in required:
+            return
+        valid, detail = verify_release(self.runtime, release)
+        if not valid:
+            raise ConfigError(
+                f"promoção para {release.target} exige assinatura válida: {detail} "
+                f"(rode `egr release sign {release.id}`)"
+            )
 
     def rollback(self, release_id: str, actor: str = "human:cli", note: str = "") -> Release:
         """Volta cada item para a revisão anterior à deste release."""

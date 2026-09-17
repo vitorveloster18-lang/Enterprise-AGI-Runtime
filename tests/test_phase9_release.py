@@ -670,11 +670,22 @@ def test_rollback_is_audited_end_to_end(runtime):
 # helpers de teste
 # ----------------------------------------------------------------------
 def _promote(manager, items, target, *, by: str = "human:vitor"):
-    """create → submit → approve → deploy (o caminho completo)."""
+    """create → submit → approve → deploy (o caminho completo).
+
+    Lacuna 9b: produção exige quórum — então o segundo voto entra aqui mesmo,
+    e o teste continua exercitando o caminho feliz do jeito que a política manda.
+    """
 
     release = manager.create(items, target=target, created_by=by)
     manager.submit(release.id)
     manager.approve(release.id, by)
+    required = manager.runtime.settings.config.release.signature_environments
+    if target == "production":
+        manager.runtime.keystore.create()
+        manager.approve(release.id, "human:revisora", note="primeiro voto do quórum")
+        manager.approve(release.id, "human:auditora", note="segundo voto do quórum")
+        if target in required:
+            manager.sign(release.id, actor=by)
     return manager.deploy(release.id, actor=by)
 
 

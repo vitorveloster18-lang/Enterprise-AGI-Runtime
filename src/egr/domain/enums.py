@@ -112,6 +112,9 @@ class EventType(BaseStrEnum):
     RELEASE_REJECTED = "release.rejected"
     RELEASE_DEPLOYED = "release.deployed"
     RELEASE_ROLLED_BACK = "release.rolled_back"
+    # lacuna 9b: assinatura criptográfica e quórum de aprovação
+    RELEASE_SIGNED = "release.signed"
+    RELEASE_APPROVAL_RECORDED = "release.approval_recorded"
     ARTIFACT_VERSIONED = "artifact.versioned"
     # gateway de canais (Fase 10): Telegram/Slack/Web são interfaces, não núcleo
     GATEWAY_MESSAGE_RECEIVED = "gateway.message_received"

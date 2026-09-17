@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 512 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
+| Testes | `tests/` | 540 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 
@@ -449,6 +449,22 @@ Qualidade tem dois caminhos (similaridade determinística e juiz de modelo), e a
 degradação é sempre dita. Carga não suspende governo: cada requisição passa pela
 mesma política e pelo mesmo orçamento — e o que o orçamento recusou é contado à
 parte, porque estourar o teto não é lentidão.
+
+**Promoção assinada e com quórum** (lacuna 9b): aprovar um nome não protege nada
+se o conteúdo mudar antes do deploy.
+
+```bash
+egr release sign <release> --by human:vitor   # assina itens, versões e evidência
+egr release verify <release>                  # sai com 1 se algo mudou
+egr release approvals <release>               # quem votou e quanto falta
+```
+
+A assinatura é `HMAC-SHA256` do manifesto com a chave mestra do workspace (a
+mesma do cofre): mudou o release, a assinatura cai. Produção exige **dois votos
+de pessoas diferentes** (`release.min_approvals_production`), ninguém vota duas
+vezes, quem criou não conta para o próprio quórum e recusa é veto. O `deploy`
+confere assinatura e também o manifesto que foi aprovado — aprovar uma coisa e
+aplicar outra é recusado.
 
 Duas lacunas da Fase 12 também fechadas aqui: o **worker da fila**
 (`egr integration worker`) é o processo explícito que drena o que já venceu —

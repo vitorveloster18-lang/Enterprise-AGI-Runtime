@@ -168,17 +168,111 @@ def approve(
     note: str = typer.Option("", "--note", "-n"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
 ):
-    """Aprova um release (ato humano; produção exige papel mais alto)."""
+    """Vota a aprovação de um release (quórum pode exigir mais de um voto)."""
 
-    from ...core.errors import AuthorizationError, ConfigError
+    from ...core.errors import AuthenticationError, AuthorizationError, ConfigError
 
     runtime = get_runtime(workspace)
     try:
         release = runtime.release_manager.approve(release_id, by, token=token, note=note)
-    except (ConfigError, AuthorizationError) as exc:
+        state = runtime.release_manager.quorum(release)
+    except (ConfigError, AuthorizationError, AuthenticationError) as exc:
         error(str(exc))
         raise typer.Exit(code=1) from exc
+
+    if str(release.status) == "submitted":
+        warning(
+            f"{release.id} com {state['obtido']} de {state['exigido']} votos — "
+            f"faltam {state['exigido'] - state['obtido']}"
+        )
+        info(f"aprovadores: {', '.join(state['aprovadores']) or '-'}")
+        return
     success(f"{release.id} aprovado por {release.decided_by}")
+
+
+@app.command(name="sign")
+def sign(
+    release_id: str = typer.Argument(...),
+    by: str = typer.Option("human:cli", "--by", "-b", help="quem assina"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Assina o manifesto do release: aprova o conteúdo, não a intenção."""
+
+    from ...core.errors import ConfigError, KeyStoreError
+
+    runtime = get_runtime(workspace)
+    try:
+        release = runtime.release_manager.sign(release_id, actor=by)
+    except (ConfigError, KeyStoreError) as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    signature = release.signature
+    success(f"{release.id} assinado · {signature.algorithm} · chave {signature.key_id[:12]}")
+    kv(f"Assinatura · {release.id}", {"impressão": signature.manifest_hash, "por": signature.signed_by})
+
+
+@app.command(name="verify")
+def verify(
+    release_id: str = typer.Argument(...),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Confere a assinatura: o release aplicado é o que foi aprovado."""
+
+    from ...core.errors import ConfigError
+
+    runtime = get_runtime(workspace)
+    try:
+        result = runtime.release_manager.verify(release_id)
+    except ConfigError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    if result["válida"]:
+        success(f"{release_id} assinatura válida")
+        info(result["detalhe"])
+    else:
+        error(f"{release_id} assinatura inválida: {result['detalhe']}")
+        raise typer.Exit(code=1)
+
+
+@app.command(name="approvals")
+def approvals(
+    release_id: str = typer.Argument(...),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Votos do release: quem aprovou, quem vetou e quanto falta do quórum."""
+
+    from ...core.errors import ConfigError
+
+    runtime = get_runtime(workspace)
+    try:
+        release = runtime.release_manager.get(release_id)
+    except ConfigError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    state = runtime.release_manager.quorum(release)
+    kv(
+        f"Quórum · {release.id} → {state['destino']}",
+        {
+            "exigido": state["exigido"],
+            "obtido": state["obtido"],
+            "aprovadores": ", ".join(state["aprovadores"]) or "-",
+            "vetos": ", ".join(state["vetos"]) or "-",
+            "completo": "sim" if state["completo"] else "não",
+        },
+    )
+    if not release.approvals:
+        info("nenhum voto registrado")
+        return
+    table(
+        "Votos",
+        ["ator", "decisão", "papéis", "nota"],
+        [
+            [item.actor, item.decision, ", ".join(item.roles) or "-", item.note or "-"]
+            for item in release.approvals
+        ],
+    )
 
 
 @app.command(name="reject")

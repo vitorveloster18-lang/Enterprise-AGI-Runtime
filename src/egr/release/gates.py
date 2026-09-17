@@ -19,6 +19,15 @@ from ..domain.enums import EvaluationStatus
 from ..domain.proposal import ValidationCheck
 from ..domain.release import Release, rank
 from ..evaluation.security import scan
+from .signature import verify
+
+
+def _signature_environments(runtime: Any) -> list[str]:
+    """Quais ambientes exigem assinatura (configurável por workspace)."""
+
+    policy = getattr(getattr(runtime.settings, "config", None), "release", None)
+    values = getattr(policy, "signature_environments", None) or ["production"]
+    return [str(value) for value in values]
 
 
 def _check(name: str, ok: bool, level: str = "error", detail: str = "") -> ValidationCheck:
@@ -35,6 +44,14 @@ def evaluate(runtime: Any, release: Release) -> list[ValidationCheck]:
         return checks
 
     target = str(release.target)
+    # lacuna 9b: assinar é o que falta antes de aplicar. Aviso aqui, barreira no
+    # deploy — o release ainda está em construção e exigir assinatura no rascunho
+    # só atrasaria quem está montando a promoção.
+    for environment in _signature_environments(runtime):
+        if target == environment:
+            valid, detail = verify(runtime, release)
+            checks.append(_check("assinatura", valid, level="warning", detail=detail))
+
     for item in release.items:
         label = item.key
         origin = str(item.from_environment)

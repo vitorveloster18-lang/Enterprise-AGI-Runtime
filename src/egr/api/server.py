@@ -162,6 +162,12 @@ class ReleaseItemRequest(BaseModel):
     name: str
 
 
+class ReleaseSignRequest(BaseModel):
+    """Lacuna 9b: quem assina o manifesto do release."""
+
+    by: str = "human:api"
+
+
 class ReleaseCreateRequest(BaseModel):
     items: list[ReleaseItemRequest]
     target: str = "staging"
@@ -644,6 +650,41 @@ def create_app(runtime: Runtime) -> FastAPI:
             return runtime.release_manager.check(release_id).summary()
         except ConfigError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/v1/release/{release_id}/sign", tags=["release"])
+    def release_sign(release_id: str, request: ReleaseSignRequest) -> dict[str, Any]:
+        """Assina o manifesto do release com a chave mestra do workspace."""
+
+        try:
+            release = runtime.release_manager.sign(release_id, actor=request.by)
+        except ConfigError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            "release": release.id,
+            "assinatura": release.signature.summary() if release.signature else None,
+        }
+
+    @app.get("/v1/release/{release_id}/verify", tags=["release"])
+    def release_verify(release_id: str) -> dict[str, Any]:
+        """Confere assinatura e quórum: o que sobe é o que foi aprovado."""
+
+        try:
+            return runtime.release_manager.verify(release_id)
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/v1/release/{release_id}/approvals", tags=["release"])
+    def release_approvals(release_id: str) -> dict[str, Any]:
+        """Votos registrados e quanto falta do quórum."""
+
+        try:
+            release = runtime.release_manager.get(release_id)
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {
+            "quórum": runtime.release_manager.quorum(release),
+            "votos": [item.summary() for item in release.approvals],
+        }
 
     @app.post("/v1/release/{release_id}/submit", tags=["release"])
     def release_submit(release_id: str) -> dict[str, Any]:
