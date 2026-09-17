@@ -31,6 +31,8 @@ from ..domain.task import StepRecord, Task, TaskResult
 from ..domain.tool import ToolRequest
 from ..evaluation.loader import load_suite_dir
 from ..evaluation.runner import EvaluationRunner
+from ..gateway import build_channels
+from ..gateway.service import GatewayService
 from ..memory import MemoryService
 from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
@@ -52,6 +54,8 @@ from ..storage.repositories import (
     EnterpriseRepository,
     EvaluationRunRepository,
     EvaluationSuiteRepository,
+    GatewayBindingRepository,
+    GatewayMessageRepository,
     IdentityRepository,
     KeyRepository,
     MemoryRepository,
@@ -171,6 +175,8 @@ class Runtime:
         self.evaluations = EvaluationRunRepository(self.db)
         self.releases = ReleaseRepository(self.db)
         self.versions = ArtifactVersionRepository(self.db)
+        self.gateway_bindings = GatewayBindingRepository(self.db)
+        self.gateway_messages = GatewayMessageRepository(self.db)
 
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
@@ -203,6 +209,9 @@ class Runtime:
         self.evaluator = EvaluationRunner(self)
         self.evaluation_suites = self._load_suites()
         self.release_manager = ReleaseManager(self)
+        # Fase 10: canais (Telegram/Slack/Web) — `self.gateway` continua sendo o ModelGateway
+        self.channels = GatewayService(self)
+        self._load_channels()
         self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
@@ -245,6 +254,17 @@ class Runtime:
 
     def reload_agents(self) -> None:
         self._load_agents()
+
+    def _load_channels(self) -> None:
+        """Instancia os canais declarados e registra no gateway."""
+
+        for channel in build_channels(self):
+            self.channels.register(channel)
+
+    def channel_status(self) -> dict[str, Any]:
+        """Fase 10: por onde o Runtime conversa com gente."""
+
+        return self.channels.status()
 
     # ---- declarative sync (YAML -> runtime) --------------------------
     def sync_agents(self) -> list[AgentSpec]:
@@ -895,6 +915,7 @@ class Runtime:
             "development": self.dev_status(),
             "evaluation": self.evaluation_status(),
             "governance": self.governance_status(),
+            "channels": self.channel_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -1026,6 +1047,27 @@ class Runtime:
             f"{governance['versions']['total']} versão(ões) de artefato, "
             f"aplicados: {', '.join(f'{k}={len(v)}' for k, v in governance['deployed'].items()) or '-'}",
         )
+        channels = self.channel_status()
+        add(
+            "channels",
+            not channels["habilitado"] or bool(channels["canais"]),
+            f"{len(channels['canais'])} canal(is), "
+            f"{channels['pareamentos']['total']} pareamento(s), "
+            f"{channels['mensagens']['total']} mensagem(ns)"
+            + ("" if channels["habilitado"] else " (gateway desabilitado)"),
+        )
+        if channels["habilitado"] and not channels["pareamento_exigido"]:
+            checks.append(
+                {
+                    "check": "channels:pareamento",
+                    "ok": False,
+                    "detail": (
+                        "gateway sem pareamento obrigatório: qualquer remetente que descobrir o "
+                        "canal fala com o Runtime (mantenha gateway.require_pairing: true)"
+                    ),
+                }
+            )
+
         evaluation = self.evaluation_status()
         add(
             "evaluation",

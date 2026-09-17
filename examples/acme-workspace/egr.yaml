@@ -77,6 +77,15 @@ security:
   allowed_write_roots:
     - artifacts
     - .egr/sandbox
+gateway:
+  enabled: true              # Telegram/Slack/Web falam com o mesmo Runtime
+  require_pairing: true      # default deny: sem pareamento, nada executa
+  rate_limit_per_minute: 10
+  channels:
+    - name: web
+      type: web              # chat em /chat (console web)
+      enabled: true
+      default_agent: document-agent
 runtime:
   max_steps: 8
   tool_timeout: 30

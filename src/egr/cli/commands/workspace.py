@@ -108,6 +108,25 @@ CONFIG_HEADER = """# EGR — Enterprise AGI Runtime
 # egr identity add vitor --roles approver
 # egr identity token vitor --ttl-days 30
 #
+# Canais (Fase 10): Telegram/Slack/Web falam com o mesmo Runtime, pareados
+#
+# gateway:
+#   enabled: true                 # desligado por padrão: falar com o Runtime é opt-in
+#   require_pairing: true         # default deny: sem pareamento, nada executa
+#   rate_limit_per_minute: 10
+#   channels:
+#     - name: web
+#       type: web                 # chat em /chat (console web)
+#       enabled: true
+#       default_agent: document-agent
+#     - name: telegram
+#       type: telegram
+#       enabled: false
+#       bot_token_env: EGR_TELEGRAM_TOKEN   # o token vem do ambiente, nunca daqui
+#       allowed_chat_ids: []                # vazio = qualquer remetente pareado
+#
+# egr gateway status | pair telegram 12345 --code ABC123 --role operator | console
+#
 """
 
 

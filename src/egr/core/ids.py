@@ -28,6 +28,8 @@ PREFIXES = {
     "proposal": "prp",
     "evaluation": "eva",
     "suite": "sut",
+    "binding": "bnd",
+    "message": "msg",
 }
 
 

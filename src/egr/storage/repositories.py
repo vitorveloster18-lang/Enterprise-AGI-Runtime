@@ -7,12 +7,14 @@ PostgreSQL later means reimplementing this module only.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from ..core.timeutil import iso, utcnow
 from ..domain.agent import AgentSpec
 from ..domain.approval import Approval
 from ..domain.artifact import Artifact
+from ..domain.channel import ChannelBinding, GatewayMessage
 from ..domain.enterprise import Enterprise
 from ..domain.evaluation import EvaluationRun, EvaluationSuite
 from ..domain.memory import MemoryRecord
@@ -1049,3 +1051,145 @@ class ArtifactVersionRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM artifact_versions") or 0)
+
+
+class GatewayBindingRepository:
+    """Fase 10: quem fala por um canal e com quais papéis."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, binding: ChannelBinding) -> ChannelBinding:
+        binding.updated_at = utcnow()
+        self.db.execute(
+            "INSERT INTO gateway_bindings (id, channel, external_id, status, data, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data, "
+            "updated_at = excluded.updated_at",
+            (
+                binding.id,
+                binding.channel,
+                binding.external_id,
+                str(binding.status),
+                _dump(binding),
+                iso(binding.created_at),
+                iso(binding.updated_at),
+            ),
+        )
+        self.db.commit()
+        return binding
+
+    def get(self, binding_id: str) -> ChannelBinding | None:
+        row = self.db.query_one("SELECT * FROM gateway_bindings WHERE id = ?", (binding_id,))
+        return _load(row, ChannelBinding) if row else None
+
+    def get_by_code(self, code: str) -> ChannelBinding | None:
+        rows = self.list(limit=200)
+        return next(
+            (item for item in rows if item.pairing_code and item.pairing_code.upper() == code.upper()),
+            None,
+        )
+
+    def list(
+        self,
+        status: str | None = None,
+        channel: str | None = None,
+        limit: int = 50,
+    ) -> list[ChannelBinding]:
+        clauses, params = [], []
+        if status:
+            clauses.append("status = ?")
+            params.append(str(status))
+        if channel:
+            clauses.append("channel = ?")
+            params.append(channel)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM gateway_bindings {where} ORDER BY updated_at DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, ChannelBinding) for row in rows]
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM gateway_bindings GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM gateway_bindings") or 0)
+
+    def delete(self, binding_id: str) -> bool:
+        self.db.execute("DELETE FROM gateway_bindings WHERE id = ?", (binding_id,))
+        self.db.commit()
+        return True
+
+
+class GatewayMessageRepository:
+    """Fase 10: histórico da conversa (texto já redigido e truncado)."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, message: GatewayMessage) -> GatewayMessage:
+        self.db.execute(
+            "INSERT INTO gateway_messages (id, channel, direction, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+            (
+                message.id,
+                message.channel,
+                message.direction,
+                _dump(message),
+                iso(message.created_at),
+            ),
+        )
+        self.db.commit()
+        return message
+
+    def list(
+        self,
+        channel: str | None = None,
+        direction: str | None = None,
+        limit: int = 20,
+    ) -> list[GatewayMessage]:
+        clauses, params = [], []
+        if channel:
+            clauses.append("channel = ?")
+            params.append(channel)
+        if direction:
+            clauses.append("direction = ?")
+            params.append(direction)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM gateway_messages {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, GatewayMessage) for row in rows]
+
+    def count_since(
+        self,
+        moment: datetime,
+        *,
+        channel: str | None = None,
+        external_id: str | None = None,
+        direction: str | None = None,
+    ) -> int:
+        """Mensagens numa janela (base do limite de ritmo do gateway)."""
+
+        clauses, params = ["created_at >= ?"], [iso(moment)]
+        if channel:
+            clauses.append("channel = ?")
+            params.append(channel)
+        if external_id:
+            clauses.append("json_extract(data, '$.external_id') = ?")
+            params.append(external_id)
+        if direction:
+            clauses.append("direction = ?")
+            params.append(direction)
+        where = " AND ".join(clauses)
+        return int(self.db.scalar(f"SELECT COUNT(*) FROM gateway_messages WHERE {where}", tuple(params)) or 0)
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT direction, COUNT(*) AS total FROM gateway_messages GROUP BY direction")
+        return {row["direction"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM gateway_messages") or 0)

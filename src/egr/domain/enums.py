@@ -109,8 +109,31 @@ class EventType(BaseStrEnum):
     RELEASE_DEPLOYED = "release.deployed"
     RELEASE_ROLLED_BACK = "release.rolled_back"
     ARTIFACT_VERSIONED = "artifact.versioned"
+    # gateway de canais (Fase 10): Telegram/Slack/Web são interfaces, não núcleo
+    GATEWAY_MESSAGE_RECEIVED = "gateway.message_received"
+    GATEWAY_MESSAGE_SENT = "gateway.message_sent"
+    GATEWAY_DENIED = "gateway.denied"
+    GATEWAY_PAIRED = "gateway.paired"
+    GATEWAY_UNPAIRED = "gateway.unpaired"
     # system
     SYSTEM_EVENT = "system.event"
+
+
+class ChannelKind(BaseStrEnum):
+    """Fase 10: por onde a mensagem chega — nunca muda quem governa."""
+
+    CONSOLE = "console"
+    TELEGRAM = "telegram"
+    SLACK = "slack"
+    WEB = "web"
+
+
+class BindingStatus(BaseStrEnum):
+    """Pareamento entre um remetente externo e um Principal do Runtime."""
+
+    PENDING = "pending"    # apareceu, mas ninguém autorizou
+    ACTIVE = "active"      # pareado: fala com o Runtime conforme seus papéis
+    BLOCKED = "blocked"    # recusado explicitamente
 
 
 class MemoryKind(BaseStrEnum):

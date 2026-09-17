@@ -6,9 +6,10 @@ gateways sobre esta mesma API (Fase 10).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -29,6 +30,7 @@ TAGS = [
     {"name": "development", "description": "Propostas de mudança: criar agents/tools/workflows sob governo"},
     {"name": "evaluation", "description": "Casos, métricas, baseline, regressão e varredura de segurança"},
     {"name": "release", "description": "Promoção dev → staging → produção, versões e rollback"},
+    {"name": "gateway", "description": "Canais (Telegram/Slack/Web): mensagem entra, task governada sai"},
 ]
 
 
@@ -65,6 +67,22 @@ class ProposalDecision(BaseModel):
     note: str = ""
     args: dict = {}
     timeout: int = 10
+
+
+class GatewayMessageRequest(BaseModel):
+    channel: str = "web"
+    external_id: str = "anonimo"
+    text: str
+    display_name: str = ""
+
+
+class GatewayPairRequest(BaseModel):
+    channel: str
+    external_id: str
+    code: str | None = None
+    roles: list[str] | None = None
+    display_name: str = ""
+    by: str = "human:api"
 
 
 class ReleaseItemRequest(BaseModel):
@@ -549,6 +567,126 @@ def create_app(runtime: Runtime) -> FastAPI:
         ]
 
     # ------------------------------------------------------------------
+    @app.get("/v1/gateway", tags=["gateway"])
+    def gateway_status() -> dict[str, Any]:
+        """Canais, pareamentos e mensagens — por onde o Runtime conversa."""
+
+        return runtime.channel_status()
+
+    @app.get("/v1/gateway/channels", tags=["gateway"])
+    def gateway_channels() -> list[dict[str, Any]]:
+        return runtime.channel_status()["canais"]
+
+    @app.get("/v1/gateway/bindings", tags=["gateway"])
+    def gateway_bindings(status: str | None = None, channel: str | None = None) -> list[dict[str, Any]]:
+        """Quem está autorizado a falar com o Runtime, e com quais papéis."""
+
+        return [
+            binding.summary()
+            for binding in runtime.channels.list_bindings(status=status, channel=channel, limit=100)
+        ]
+
+    @app.post("/v1/gateway/pair", tags=["gateway"])
+    def gateway_pair(request: GatewayPairRequest) -> dict[str, Any]:
+        """Aprova o pareamento de um remetente (ato de operador)."""
+
+        try:
+            binding = runtime.channels.pair(
+                request.channel,
+                request.external_id,
+                roles=request.roles,
+                code=request.code,
+                actor=request.by,
+                display_name=request.display_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return binding.summary()
+
+    @app.delete("/v1/gateway/bindings/{channel}/{external_id}", tags=["gateway"])
+    def gateway_unpair(channel: str, external_id: str, block: bool = False, by: str = "human:api") -> dict[str, Any]:
+        try:
+            binding = runtime.channels.unpair(channel, external_id, actor=by, block=block)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return binding.summary()
+
+    @app.post("/v1/gateway/messages", tags=["gateway"])
+    def gateway_message(request: GatewayMessageRequest) -> dict[str, Any]:
+        """Entrega uma mensagem ao Gateway (o canal web usa esta rota)."""
+
+        reply = runtime.channels.handle(
+            request.channel,
+            request.external_id,
+            request.text,
+            display_name=request.display_name,
+        )
+        return reply.summary()
+
+    @app.get("/v1/gateway/messages", tags=["gateway"])
+    def gateway_messages(channel: str | None = None, direction: str | None = None, limit: int = 20):
+        """Histórico redigido da conversa."""
+
+        return [
+            message.summary()
+            for message in runtime.gateway_messages.list(channel=channel, direction=direction, limit=limit)
+        ]
+
+    @app.post("/v1/gateway/slack/events", tags=["gateway"])
+    async def gateway_slack(request: Request) -> Any:
+        """Events API do Slack: assinatura conferida antes de qualquer leitura."""
+
+        from ..gateway.slack import SlackChannel, verify_signature
+
+        channel = next(
+            (
+                item
+                for item in runtime.channels.select()
+                if isinstance(item, SlackChannel)
+            ),
+            None,
+        )
+        if channel is None:
+            raise HTTPException(status_code=404, detail="canal slack não configurado")
+        body = (await request.body()).decode("utf-8")
+        timestamp = request.headers.get("x-slack-request-timestamp", "")
+        signature = request.headers.get("x-slack-signature", "")
+        if not verify_signature(channel.signing_secret, timestamp, body, signature):
+            runtime.audit.record(
+                "gateway.denied",
+                actor="slack",
+                environment=str(runtime.settings.environment),
+                payload={"motivo": "assinatura inválida"},
+            )
+            raise HTTPException(status_code=401, detail="assinatura inválida")
+        payload = json.loads(body or "{}")
+        reply = channel.handle_payload(payload, runtime.channels.handle_inbound)
+        if reply is None:
+            return {"ok": True, "handled": False}
+        if reply.command == "url_verification":
+            return {"challenge": reply.text}
+        return {"ok": True, "handled": True, "reply": reply.summary()}
+
+    @app.post("/v1/gateway/telegram/webhook", tags=["gateway"])
+    async def gateway_telegram(request: Request) -> Any:
+        """Webhook do Telegram (alternativa ao long polling)."""
+
+        from ..gateway.telegram import TelegramChannel
+
+        channel = next(
+            (item for item in runtime.channels.select() if isinstance(item, TelegramChannel)),
+            None,
+        )
+        if channel is None:
+            raise HTTPException(status_code=404, detail="canal telegram não configurado")
+        secret = channel.webhook_secret
+        if secret and request.headers.get("x-telegram-bot-api-secret-token") != secret:
+            raise HTTPException(status_code=401, detail="token do webhook inválido")
+        payload = json.loads((await request.body()).decode("utf-8") or "{}")
+        reply = channel.handle_update(payload, runtime.channels.handle_inbound)
+        return {"ok": True, "handled": reply is not None}
+
+    # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])
     def security() -> dict[str, Any]:
         """Postura de segurança: identidades, cofre, chave e lacunas."""
@@ -633,6 +771,12 @@ def create_app(runtime: Runtime) -> FastAPI:
     def console() -> str:
         return _console_html()
 
+    @app.get("/chat", response_class=HTMLResponse, include_in_schema=False)
+    def chat() -> str:
+        """Chat web: a mesma governança do Telegram, sem instalar nada."""
+
+        return _chat_html()
+
     return app
 
 
@@ -670,6 +814,7 @@ def _console_html() -> str:
   <h1>Enterprise AGI Runtime</h1>
   <span class="muted" id="env"></span>
   <span class="muted" id="updated"></span>
+  <a class="muted" href="/chat">chat</a>
   <span class="row" style="margin-left:auto">
     <span class="muted">identidade</span>
     <input id="ident" placeholder="token egr_..." size="34"
@@ -809,6 +954,94 @@ async function decide(id, decision) {
 loadIdent();
 load();
 setInterval(load, 5000);
+</script>
+</body>
+</html>
+"""
+
+
+def _chat_html() -> str:
+    return """<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EGR Chat</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #0b0f14; color: #d7e0ea; }
+  header { padding: 14px 20px; border-bottom: 1px solid #1d2733; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .08em; text-transform: uppercase; }
+  .muted { color: #7c8b9c; }
+  main { padding: 16px 20px; display: grid; gap: 12px; max-width: 900px; }
+  #log { background: #111823; border: 1px solid #1d2733; border-radius: 10px; padding: 12px; min-height: 320px; max-height: 60vh; overflow-y: auto; }
+  .msg { margin: 0 0 10px; white-space: pre-wrap; word-break: break-word; }
+  .msg b { display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #7c8b9c; margin-bottom: 2px; }
+  .msg.egr b { color: #93c5fd; }
+  .msg.denied { color: #f87171; }
+  .row { display: flex; gap: 8px; }
+  input { flex: 1; background: #0e1520; border: 1px solid #1d2733; color: #d7e0ea; border-radius: 8px; padding: 10px; font: inherit; }
+  button { background: #1d4ed8; color: white; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; font: inherit; }
+  code { color: #93c5fd; }
+</style>
+</head>
+<body>
+<header>
+  <h1>EGR Chat</h1>
+  <span class="muted">canal web</span>
+  <span class="muted">sessão <code id="who"></code></span>
+  <span style="margin-left:auto"><a class="muted" href="/">console</a></span>
+</header>
+<main>
+  <div id="log"></div>
+  <form class="row" id="form">
+    <input id="text" placeholder="escreva um objetivo (ou /ajuda)" autocomplete="off" autofocus />
+    <button type="submit">enviar</button>
+  </form>
+  <p class="muted">
+    Cada mensagem é uma task governada: política, orçamento, aprovação e trilha
+    valem aqui como valem no Telegram. Sem pareamento, o Runtime responde com o
+    código — <code>egr gateway pair web &lt;sessão&gt; --code &lt;código&gt; --role operator</code>.
+  </p>
+</main>
+<script>
+const log = document.getElementById('log');
+let who = localStorage.getItem('egr_web_session');
+if (!who) { who = 'web-' + Math.random().toString(16).slice(2, 10); localStorage.setItem('egr_web_session', who); }
+document.getElementById('who').textContent = who;
+
+function add(role, text, denied) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role + (denied ? ' denied' : '');
+  const b = document.createElement('b');
+  b.textContent = role === 'eu' ? 'você' : (denied ? 'runtime (recusado)' : 'runtime');
+  div.appendChild(b);
+  div.appendChild(document.createTextNode(text));
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function send(text) {
+  add('eu', text);
+  const response = await fetch('/v1/gateway/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: 'web', external_id: who, text }),
+  });
+  const data = await response.json();
+  add('egr', data.texto + (data.task && data.task !== '-' ? '\\n(task ' + data.task + ')' : ''), data.recusada);
+}
+
+document.getElementById('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const input = document.getElementById('text');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  try { await send(text); } catch (error) { add('egr', 'erro: ' + error, true); }
+});
+
+add('egr', 'canal web pronto. /ajuda lista os comandos.');
 </script>
 </body>
 </html>

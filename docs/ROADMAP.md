@@ -1,6 +1,6 @@
 # Roadmap — Fases 0 a 12
 
-Situação em 2026-09: **Fases 0 a 9 implementadas e testadas** (233 testes).
+Situação em 2026-09: **Fases 0 a 10 implementadas e testadas** (278 testes).
 
 | Fase | Nome | Situação | Observação |
 |---|---|---|---|
@@ -14,11 +14,12 @@ Situação em 2026-09: **Fases 0 a 9 implementadas e testadas** (233 testes).
 | 6b | — | — | Fase 6 não cobre coordenação negociada entre agentes (handoff/leilão de tarefas) nem triggers de banco de dados — Fase 11 |
 | 8b | — | — | Fase 8 não mede qualidade de **modelo** (só o encanamento), nem simula carga — laboratório de avaliação |
 | 9b | — | — | Fase 9 promove dentro do workspace e não tem assinatura criptográfica nem quórum de aprovação — evolução de política |
+| 10b | — | — | Fase 10 atende mensagem por mensagem (sem fila), não trata anexos/mídia nem botões interativos — integrações (Fase 11) |
 | 6 | Orchestration | ✅ | execução como objeto auditado, DAG com condição/retry/compensação/tolerância, paralelismo por nível, retomada e cancelamento, scheduler cron idempotente, gatilho por evento e webhook |
 | 7 | Development Environment | ✅ | proposta verificada (AST) + prova em sandbox + aprovação humana; agentes criam agents/tools/workflows sem nunca aplicar |
 | 8 | Evaluation | ✅ | suítes com casos medidos, métricas (acerto/custo/p95), limites, baseline e regressão, varredura de segurança do artefato |
 | 9 | Production Governance | ✅ | release com gates (escada, evidência, segurança), versão por snapshot e rollback; produção exige staging aplicado + papel mínimo |
-| 10 | Remote Control | ⏳ | gateways Telegram/Slack/Web sobre a API local |
+| 10 | Remote Control | ✅ | gateway de canais: Telegram (polling/webhook), Slack (Events API assinada), Web (/chat) e terminal, com pareamento e RBAC |
 | 11 | Enterprise Integrations | ⏳ | REST, GraphQL, SQL, webhooks, MCP, e-mail, browser; depois ERP/CRM/RH |
 | 12 | Vertical Packs | ⏳ | Finance, Accounting, Sales, Operations, HR, Marketing, Support |
 

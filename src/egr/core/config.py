@@ -152,6 +152,44 @@ class ToolsConfig(BaseModel):
     browser: BrowserToolConfig = Field(default_factory=BrowserToolConfig)
 
 
+class ChannelConfig(BaseModel):
+    """Fase 10: um canal de mensagens é uma interface, nunca um atalho de governo."""
+
+    name: str
+    type: str = "console"          # console | telegram | slack | web
+    enabled: bool = False
+    #: agente usado quando a mensagem não diz qual
+    default_agent: str = ""
+    #: ambiente das tasks criadas por este canal (vazio = ambiente do workspace)
+    environment: str = ""
+    #: lista branca de remetentes (vazia = qualquer pareado)
+    allowed_chat_ids: list[str] = Field(default_factory=list)
+    #: permite decidir aprovações por este canal (decisão é ato humano consciente)
+    allow_decisions: bool = False
+    # telegram
+    bot_token_env: str = "EGR_TELEGRAM_TOKEN"
+    polling_timeout: int = 25
+    # slack
+    signing_secret_env: str = "EGR_SLACK_SIGNING_SECRET"
+    #: segredo opcional conferido no cabeçalho X-Telegram-Bot-Api-Secret-Token
+    webhook_secret_env: str = ""
+
+
+class GatewayConfig(BaseModel):
+    """Fase 10: Remote Control — o Runtime atrás de Telegram/Slack/Web."""
+
+    enabled: bool = False
+    #: default deny: sem pareamento aprovado por um humano, o canal não fala
+    require_pairing: bool = True
+    #: papéis de um remetente recém-pareado (o operador pode elevar depois)
+    default_roles: list[str] = Field(default_factory=lambda: ["viewer"])
+    max_message_chars: int = 4000
+    max_reply_chars: int = 3500
+    rate_limit_per_minute: int = 10
+    redact: bool = True
+    channels: list[ChannelConfig] = Field(default_factory=list)
+
+
 class SecurityConfig(BaseModel):
     python_exec_enabled: bool = True
     allow_network_tools: bool = True
@@ -229,6 +267,7 @@ class EGRConfig(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 

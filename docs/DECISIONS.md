@@ -628,3 +628,56 @@ disponível, o rollback é recusado com erro explícito — não improvisa.
 **Consequências:** voltar é determinístico e auditado (`release.rolled_back` com
 o release de origem); o artefato volta ao ambiente de onde saiu em vez de ficar
 em um estado inventado.
+
+---
+
+## ADR-037 · Canal é tradutor, nunca atalho
+
+**Status:** aceita (Fase 10).
+
+**Contexto:** "integrar um bot" costuma significar um caminho paralelo: o bot
+chama o agente direto, e a governança fica para depois (ou para nunca).
+
+**Decisão:** Telegram/Slack/Web/terminal implementam um contrato mínimo
+(`send`, `poll_once`) e entregam `InboundMessage` ao `GatewayService`, que
+identifica, autoriza e chama `Runtime.submit()`. Política, orçamento, aprovação,
+memória e auditoria são os mesmos da API e do CLI.
+
+**Consequências:** trocar de canal não troca de regra; um canal novo é um
+adaptador, não uma exceção. O custo é uma rodada a mais de indireção por
+mensagem.
+
+---
+
+## ADR-038 · Pareamento obrigatório: descobrir o canal não é permissão
+
+**Status:** aceita (Fase 10).
+
+**Contexto:** bots "abertos" atendem qualquer pessoa que ache o link. Sem
+pareamento, o canal é uma porta sem tranca com o nome da empresa nela.
+
+**Decisão:** o primeiro contato cria um binding `pending` com código de 6
+caracteres; nada executa até um operador rodar `egr gateway pair ... --code`.
+Parear cria (ou atualiza) um **Principal** do Runtime com papéis explícitos, e
+cada task nasce com `created_by` nele. `unpair --block` desabilita o Principal.
+
+**Consequências:** a identidade de quem fala por um canal é auditável e
+revogável; o custo é o atrito do pareamento (aceito: é o preço da porta
+trancada).
+
+---
+
+## ADR-039 · Ritmo e redação ficam no Gateway
+
+**Status:** aceita (Fase 10).
+
+**Contexto:** limite de mensagens e limpeza de segredos implementados "em cada
+bot" viram esquecimento no primeiro canal novo.
+
+**Decisão:** o ritmo é contado no banco (`gateway_messages` na janela de 60 s,
+por remetente) — reiniciar o processo não zera a janela — e toda mensagem é
+redigida (`redact_text`) antes de ser guardada ou respondida. O canal não
+decide nada disso.
+
+**Consequências:** contenção e sigilo passam a valer para canais que ainda não
+existem; o custo é uma consulta a mais por mensagem.

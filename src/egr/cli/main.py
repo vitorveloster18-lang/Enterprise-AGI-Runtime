@@ -13,6 +13,7 @@ from .commands import (
     audits,
     dev,
     evaluation,
+    gateway,
     governance,
     mcp,
     memory,
@@ -57,6 +58,8 @@ app.add_typer(workflows.app, name="workflow")
 app.add_typer(dev.app, name="dev")
 # avaliação (Fase 8): provar qualidade, custo, latência e segurança
 app.add_typer(evaluation.app, name="eval")
+# canais (Fase 10): Telegram/Slack/Web sobre a mesma API
+app.add_typer(gateway.app, name="gateway")
 app.add_typer(mcp.app, name="mcp")
 app.add_typer(proposals.app, name="proposal")
 # governança de produção (Fase 9): promoção com versão, evidência e volta

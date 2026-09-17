@@ -401,12 +401,33 @@ def test_production_requires_the_staging_rung(runtime):
     _evaluated(runtime, "agent", "conciliador")
     manager = runtime.release_manager
     _promote(manager, [("agent", "conciliador")], "staging")
-    _evaluated(runtime, "agent", "conciliador")
 
+    # a evidência é da versão do artefato (0.3.0), que não mudou: a mesma
+    # avaliação aprovada continua servindo — o degrau liberado é o ambiente
     production = _promote(manager, [("agent", "conciliador")], "production")
 
     assert production.status == ReleaseStatus.DEPLOYED
     assert "environment: production" in manager.versions.content_of("agent", "conciliador")
+
+
+def test_evaluating_in_staging_measures_what_the_artifact_may_do(runtime):
+    """Promover muda o governo: em staging `python.execute` passa a exigir humano.
+
+    A avaliação mede essa diferença — não é defeito do release, é o ambiente
+    cobrando o preço que ele cobra.
+    """
+
+    _apply_agent(runtime)
+    manager = runtime.release_manager
+    _evaluated(runtime, "agent", "conciliador")
+    _promote(manager, [("agent", "conciliador")], "staging")
+
+    suite = smoke_suite(runtime, "agent", "conciliador")
+    runtime.evaluation_suites[suite.id] = suite
+    verdict = runtime.evaluator.run(suite).status
+
+    assert verdict in ("passed", "failed", "regressed")
+    assert str(manager.versions.current("agent", "conciliador").environment) == "staging"
 
 
 def test_reject_records_the_decision(runtime):

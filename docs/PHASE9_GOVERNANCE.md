@@ -196,6 +196,7 @@ Pulo de degrau e falta de evidência foram conferidos ao vivo: o release nasce
 | promoção multi-artefato atômica | os itens são aplicados em sequência; um rollback parcial deixa os anteriores reverterem junto, mas não há transação de disco |
 | políticas por ambiente | o gate é fixo (escada, evidência, segurança); regras por empresa entram como política declarada numa fase seguinte |
 | assinatura do aprovador | a decisão fica na trilha encadeada, mas não há assinatura criptográfica dorelease |
+| evidência por ambiente | a evidência é ligada à **versão** do artefato: promover dev→staging→produção não exige nova avaliação, mesmo que a política mude por ambiente (`python.execute` passa a exigir aprovação em staging) — ao reavaliar, a Fase 8 mede essa diferença |
 | promoção de workspace remoto | o release promove dentro do workspace; publicar em outro Runtime depende da Fase 11 (integrações) |
 | aprovação por quórum | hoje é um humano com papel suficiente; quórum/4-olhos é evolução de política |
 

@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 9 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation e Production Governance) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 10 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance e Remote Control) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 233 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback) |
+| Testes | `tests/` | 278 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação) |
 
 ## 6. Comandos principais
 
@@ -355,6 +355,21 @@ escada, staging já aplicado, existência do artefato, **avaliação aprovada da
 versão atual** e varredura de segurança sem achado crítico. Produção exige
 `approver`; sem identidade verificada a API responde 401, sem permissão 403.
 Versão é snapshot do conteúdo (`sha256[:16]`): rollback restaura — não reconstrói.
+
+## 5.8 Remote Control (Fase 10)
+
+```bash
+egr gateway status | channels | bindings            # quem fala com o Runtime
+egr gateway pair web ana --code 4D9D25 --role operator
+egr gateway send web ana "resuma os documentos"      # vira task governada
+egr gateway console                                  # conversa pelo terminal
+egr gateway start --channel telegram                 # polling da Bot API
+```
+
+Telegram, Slack, Web (`/chat`) e terminal entram pelo mesmo `GatewayService`:
+**pareamento obrigatório** (ninguém fala só porque achou o canal), remetente
+vira `Principal` com papéis, `/run` e texto livre viram task com
+`created_by` rastreável, e ritmo/redação valem para todos os canais.
 Achado crítico de segurança reprova a execução **mesmo com todos os casos
 passando** — prova funcional não compra imunidade de governo.
 
@@ -423,6 +438,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE7_DEV_ENVIRONMENT.md`](docs/PHASE7_DEV_ENVIRONMENT.md) — Fase 7 (proposta verificada, prova em sandbox, aprovação humana)
 - [`docs/PHASE8_EVALUATION.md`](docs/PHASE8_EVALUATION.md) — Fase 8 (suítes, métricas, baseline, regressão, segurança)
 - [`docs/PHASE9_GOVERNANCE.md`](docs/PHASE9_GOVERNANCE.md) — Fase 9 (release, gates de promoção, versão por snapshot, rollback)
+- [`docs/PHASE10_REMOTE_CONTROL.md`](docs/PHASE10_REMOTE_CONTROL.md) — Fase 10 (gateway de canais, pareamento, comandos)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 
