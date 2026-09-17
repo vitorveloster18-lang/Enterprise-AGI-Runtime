@@ -212,12 +212,19 @@ class ModelGateway:
         task_id: str | None = None,
         agent_id: str | None = None,
         environment: str | None = None,
+        provider: str | None = None,
     ) -> CompletionResponse:
+        """Gera uma resposta. `provider` fixa o provedor (laboratório usa)."""
+
         allow = self.external_ai != "forbidden" if allow_external is None else allow_external
 
         self._enforce_budget(task_id, environment=environment, agent_id=agent_id)
 
         candidates = self.candidates(request.capability, allow)
+        if provider:
+            candidates = [item for item in candidates if item.name == provider]
+            if not candidates:
+                raise NoProviderAvailable(f"provedor '{provider}' indisponível para '{request.capability}'")
         if not candidates:
             external_blocked = [
                 provider for provider in self.candidates(request.capability, True) if provider.external

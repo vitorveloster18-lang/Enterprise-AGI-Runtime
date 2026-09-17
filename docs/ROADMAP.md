@@ -1,7 +1,7 @@
 # Roadmap — Fases 0 a 12 + Fase 13 (fechamento das lacunas)
 
 Situação em 2026-09: **Fases 0 a 12 implementadas e testadas** e **Fase 13 em andamento**
-(456 testes). A Fase 13 não é fase nova: é o fechamento das lacunas que o próprio
+(512 testes). A Fase 13 não é fase nova: é o fechamento das lacunas que o próprio
 roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_LACUNAS_FECHADAS.md).
 
 | Fase | Nome | Situação | Observação |
@@ -14,7 +14,7 @@ roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_L
 | 5 | Memory | ✅ | knowledge/operational/episodic/**semantic** com embedding local determinístico, recuperação híbrida (BM25 + cosseno via RRF), ciclo de vida (reforço/decaimento/saliência) e consolidação com arquivamento |
 | 5b | — | — | Fase 5 não cobre memória multimodal, nem limpeza automática de PII na escrita — avaliação de qualidade entra na Fase 8 |
 | 6b | — | — | Fase 6 não cobre coordenação negociada entre agentes (handoff/leilão de tarefas) nem triggers de banco de dados |
-| 8b | — | — | Fase 8 não mede qualidade de **modelo** (só o encanamento), nem simula carga — laboratório de avaliação |
+| 8b | — | ✅ | laboratório: qualidade por similaridade ou juiz de modelo (com degradação declarada), comparação de provedores e simulação de carga com p50/p95/p99 — fechado na Fase 13 |
 | 9b | — | — | Fase 9 promove dentro do workspace e não tem assinatura criptográfica nem quórum de aprovação — evolução de política |
 | 10b | — | ✅ | anexos e mídia entrando por lista branca (`artifacts/inbox`, impressão digital, recusa com motivo) e botões que viram comando governado — fechado na Fase 13 |
 | 11b | — | — | catálogo de ERP/CRM/RH prontos entra com os Packs Verticais (Fase 12); fila de saída com retry/backoff também foi entregue na Fase 12 |
@@ -26,7 +26,7 @@ roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_L
 | 10 | Remote Control | ✅ | gateway de canais: Telegram (polling/webhook), Slack (Events API assinada), Web (/chat) e terminal, com pareamento e RBAC |
 | 11 | Enterprise Integrations | ✅ | conectores declarados (REST/GraphQL/SQL/webhook): lista branca de host/método, credencial no cofre, política por operação, custo/latência/decisão registrados, eventos de entrada assinados e idempotentes |
 | 12 | Vertical Packs | ✅ | 7 packs (Finanças, Contabilidade, Vendas, Operações, RH, Marketing, Suporte) instalados por proposta aprovada + fila de saída com retry/backoff |
-| 13 | Fechamento das lacunas | 🟡 | 10b e 12b entregues (anexos/botões; worker da fila e atualização de pack); 8b, 9b, 6b e 5b na fila |
+| 13 | Fechamento das lacunas | 🟡 | 10b, 12b e 8b entregues (anexos/botões; worker e pack; laboratório de avaliação); 9b, 6b e 5b na fila |
 
 Legenda: ✅ concluído · 🟡 parcial (base pronta) · ⏳ não iniciado
 

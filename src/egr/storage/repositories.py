@@ -16,7 +16,7 @@ from ..domain.approval import Approval
 from ..domain.artifact import Artifact
 from ..domain.channel import Attachment, ChannelBinding, GatewayMessage
 from ..domain.enterprise import Enterprise
-from ..domain.evaluation import EvaluationRun, EvaluationSuite
+from ..domain.evaluation import EvaluationRun, EvaluationSuite, LoadRun
 from ..domain.integration import InboundEvent, Integration, IntegrationCall, IntegrationJob
 from ..domain.memory import MemoryRecord
 from ..domain.pack import InstalledPack
@@ -1270,6 +1270,42 @@ class AttachmentRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM gateway_attachments") or 0)
+
+
+class EvaluationLoadRepository:
+    """Lacuna 8b: simulações de carga — o histórico sustenta a comparação."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, load: LoadRun) -> LoadRun:
+        self.db.execute(
+            "INSERT INTO evaluation_loads (id, suite_id, status, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, "
+            "data = excluded.data",
+            (load.id, load.suite_id, load.status, _dump(load), iso(load.created_at)),
+        )
+        self.db.commit()
+        return load
+
+    def get(self, load_id: str) -> LoadRun | None:
+        row = self.db.query_one("SELECT * FROM evaluation_loads WHERE id = ?", (load_id,))
+        return _load(row, LoadRun) if row else None
+
+    def list(self, suite_id: str | None = None, limit: int = 10) -> list[LoadRun]:
+        clauses, params = [], []
+        if suite_id:
+            clauses.append("suite_id = ?")
+            params.append(suite_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM evaluation_loads {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, LoadRun) for row in rows]
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM evaluation_loads") or 0)
 
 
 # ---------------------------------------------------------------------------

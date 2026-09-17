@@ -135,6 +135,28 @@ class GatewayPairRequest(BaseModel):
     by: str = "human:api"
 
 
+class EvaluationJudgeRequest(BaseModel):
+    """Lacuna 8b: julgamento de qualidade (método explícito, nunca implícito)."""
+
+    method: str = "auto"             # auto | similaridade | modelo
+    by: str = "human:api"
+
+
+class EvaluationCompareRequest(BaseModel):
+    """Lacuna 8b: mesma suíte, provedores diferentes."""
+
+    models: list[str]
+    by: str = "human:api"
+
+
+class EvaluationLoadRequest(BaseModel):
+    """Lacuna 8b: simulação de carga sob as mesmas regras."""
+
+    requests: int = 10
+    concurrency: int = 2
+    by: str = "human:api"
+
+
 class ReleaseItemRequest(BaseModel):
     kind: str
     name: str
@@ -538,6 +560,44 @@ def create_app(runtime: Runtime) -> FastAPI:
         """Varredura de segurança de um artefato (sem executá-lo)."""
 
         return [finding.model_dump(mode="json") for finding in security_scan(runtime, target_kind, target)]
+
+    @app.post("/v1/eval/suites/{suite_id}/judge", tags=["evaluation"])
+    def eval_judge(suite_id: str, payload: EvaluationJudgeRequest | None = None) -> dict[str, Any]:
+        """Nota de qualidade das respostas (0..1) contra o esperado."""
+
+        payload = payload or EvaluationJudgeRequest()
+        suite = runtime.evaluation_suites.get(suite_id) or runtime.suites.get(suite_id)
+        if suite is None:
+            raise HTTPException(status_code=404, detail="suite not found")
+        return runtime.evaluator.judge(suite, method=payload.method, actor=payload.by)
+
+    @app.post("/v1/eval/suites/{suite_id}/compare", tags=["evaluation"])
+    def eval_compare(suite_id: str, payload: EvaluationCompareRequest) -> dict[str, Any]:
+        """Compara provedores na mesma suíte: qualidade, custo e latência."""
+
+        suite = runtime.evaluation_suites.get(suite_id) or runtime.suites.get(suite_id)
+        if suite is None:
+            raise HTTPException(status_code=404, detail="suite not found")
+        return runtime.evaluator.compare(suite, payload.models, actor=payload.by)
+
+    @app.post("/v1/eval/suites/{suite_id}/load", tags=["evaluation"])
+    def eval_load(suite_id: str, payload: EvaluationLoadRequest | None = None) -> dict[str, Any]:
+        """Simula carga: mesmas regras, mesmo orçamento, repetidas vezes."""
+
+        payload = payload or EvaluationLoadRequest()
+        suite = runtime.evaluation_suites.get(suite_id) or runtime.suites.get(suite_id)
+        if suite is None:
+            raise HTTPException(status_code=404, detail="suite not found")
+        load = runtime.evaluator.load(
+            suite, requests=payload.requests, concurrency=payload.concurrency, actor=payload.by
+        )
+        return load.model_dump(mode="json")
+
+    @app.get("/v1/eval/loads", tags=["evaluation"])
+    def eval_loads(suite_id: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
+        """Histórico das simulações de carga."""
+
+        return [item.summary() for item in runtime.evaluation_loads.list(suite_id=suite_id, limit=limit)]
 
     @app.get("/v1/release", tags=["release"])
     def release_status() -> dict[str, Any]:

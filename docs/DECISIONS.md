@@ -889,3 +889,41 @@ arquivo preservado continua no registro, com a impressão que tem hoje.
 **Consequências:** ninguém perde ajuste local numa atualização, e a decisão de
 descartá-lo é explícita e aprovada; o custo é conviver com divergência declarada
 até alguém resolver o diff — divergência dita é melhor que trabalho perdido.
+
+---
+
+## ADR-051 · Qualidade tem dois caminhos, e a degradação é visível
+
+**Status:** aceita (Fase 13, lacuna 8b).
+
+**Contexto:** medir "a resposta presta" exige um juiz. Juiz de modelo custa,
+chama sistema externo e pode falhar; métrica determinística é barata e auditável,
+mas não entende sinônimo nem meio-acertou.
+
+**Decisão:** `similaridade` (Jaccard + trechos obrigatórios) é o padrão e roda
+sempre; `modelo` é opt-in e custeado. Quando o juiz falha — ou quando não há
+provedor — a nota cai para a similaridade com `degradado=True` registrado no
+relatório e no evento. `min_quality` é limiar de suíte: abaixo dele, reprova.
+
+**Consequências:** a avaliação nunca trava por falta de provedor e nunca finge
+uma precisão que não tem; o custo é conviver com uma métrica conservadora
+(meio-acerto vale meio), o que é melhor que um número inventado.
+
+---
+
+## ADR-052 · Carga mede governo sob pressão, não só velocidade
+
+**Status:** aceita (Fase 13, lacuna 8b).
+
+**Contexto:** simulação de carga costuma desligar as travas para "medir a
+capacidade real" — e o número que sai não serve para nada, porque não é o
+sistema que a empresa vai rodar.
+
+**Decisão:** cada requisição da simulação passa pelo mesmo caminho governado
+(política, orçamento, aprovação, auditoria). O relatório separa erro de
+**orçamento recusado**: quando o teto aparece antes da capacidade, o veredito é
+`failed` e o motivo diz exatamente isso. p95 acima do teto da suíte também
+reprova.
+
+**Consequências:** o número descreve o sistema real, inclusive suas travas; o
+custo é que "capacidade teórica" nunca aparece — de propósito.

@@ -156,3 +156,54 @@ Preservar não é esquecer: o arquivo mantido continua registrado no
 **O que continua fora:** migração de conteúdo (reescrever o arquivo do pack
 mantendo o ajuste local) e resolução de conflito interativa — o Runtime diz
 onde está o conflito; quem resolve é o humano, pelo diff.
+
+---
+
+## 3. Lacuna 8b — laboratório de avaliação: qualidade e carga
+
+**O problema:** a Fase 8 media o **encanamento** — passa?, custa?, demora? Duas
+perguntas ficaram fora: *a resposta presta?* e *quantas requisições o Runtime
+aguenta sem quebrar o governo?*
+
+### 3.1 Qualidade (`egr eval judge`, `egr eval compare`)
+
+Cada caso pode declarar `expected` (resposta esperada) e `expected_contains`
+(trechos obrigatórios). A nota vai de 0 a 1 por dois caminhos:
+
+| Método | Como conta | Quando usar |
+|---|---|---|
+| `similaridade` | metade sobreposição de vocabulário (Jaccard sem stopwords), metade trechos obrigatórios presentes | padrão, offline, custo zero, auditável |
+| `modelo` | um provedor julga contra o esperado (formato `NOTA: x \| MOTIVO: y`) | quando o provedor está disponível e o custo é aceito |
+
+**Degradação é dita, nunca escondida:** se o juiz não responde (sem provedor,
+fora do ar, resposta fora do formato), a nota cai para a similaridade com
+`degradado=True` no relatório e no evento `eval.judged`.
+
+`min_quality` na suíte vira limiar: abaixo dele, a execução é **reprovada** com
+o motivo explícito.
+
+`egr eval compare <suíte> --models a,b` roda a mesma suíte em provedores
+diferentes e devolve qualidade, acerto, custo e p95 de cada um — com o provedor
+do agente **fixado durante o teste e devolvido ao valor original no fim**. Em
+suíte que não usa modelo (ferramenta, workflow, política), o relatório diz que a
+comparação repete a mesma execução, em vez de sugerir diferença inexistente.
+
+### 3.2 Carga (`egr eval load`)
+
+```bash
+egr eval load <suíte> --requests 50 --concurrency 5
+egr eval loads                # histórico
+```
+
+- cada requisição passa pelo **mesmo caminho** (política, orçamento, aprovação,
+  auditoria) — carga não suspende governo;
+- o relatório separa **erro** de **orçamento recusado**: estourar o teto não é
+  lentidão, é o Runtime fazendo o que prometeu;
+- mede p50/p95/p99, vazão (req/s), custo total e por requisição;
+- veredito: `passed` · `degraded` (erros, mas o orçamento não foi o limite) ·
+  `failed` (orçamento sendo atingido antes da capacidade, ou p95 acima do teto);
+- cada simulação fica registrada (`evaluation_loads`) e gera `eval.load_finished`.
+
+**O que continua fora:** teste distribuído (uma máquina só), perfis de memória
+por thread e comparação automática entre modelos sem suíte declarada — o
+laboratório mede o que a empresa escreveu, não adivinha o que ela quer.

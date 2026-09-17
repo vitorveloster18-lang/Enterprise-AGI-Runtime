@@ -36,6 +36,7 @@ from ..domain.evaluation import (
     EvaluationCase,
     EvaluationRun,
     EvaluationSuite,
+    LoadRun,
 )
 from ..policies.conditions import Condition
 from .metrics import aggregate, compare, verdict
@@ -361,6 +362,209 @@ class EvaluationRunner:
             "required_role": decision.required_role,
             "output": {"decision": str(decision.decision), "reason": decision.reason},
         }
+
+    # ---- laboratório (lacuna 8b) --------------------------------------
+    def answer_for(self, output: Any) -> str:
+        """O texto a ser julgado: a resposta do agente, a saída da ferramenta…"""
+
+        if isinstance(output, dict):
+            for key in ("answer", "output", "status"):
+                value = output.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+            outputs = output.get("outputs")
+            if isinstance(outputs, dict) and outputs:
+                return " ".join(str(item) for item in outputs.values())
+        return str(output) if output is not None else ""
+
+    def judge(self, suite: EvaluationSuite, *, method: str = "auto", actor: str = "cli") -> dict[str, Any]:
+        """Roda a suíte e julga a qualidade de cada resposta (0..1)."""
+
+        from . import quality
+
+        run = self.run(suite, actor=actor)
+        scores = [
+            quality.judge_case(
+                self.runtime,
+                case,
+                self.answer_for(result.output),
+                method=method,
+            )
+            for case, result in zip(suite.cases, run.cases, strict=False)
+            if case.expected or case.expected_contains
+        ]
+        metrics = quality.aggregate(scores)
+        threshold = suite.thresholds.min_quality
+        reproved = "não" if threshold is None or metrics["qualidade_média"] >= threshold else "sim"
+        report = {
+            "run": run.id,
+            "suíte": suite.id,
+            "método": metrics["método"],
+            "métricas": metrics,
+            "limite": threshold,
+            "reprovado": reproved,
+            "notas": [score.summary() for score in scores],
+        }
+        if threshold is not None and metrics["qualidade_média"] < threshold:
+            run.status = EvaluationStatus.FAILED
+            run.reasons.append(
+                f"qualidade média {metrics['qualidade_média']:.2f} abaixo do mínimo {threshold:.2f}"
+            )
+            self.runtime.evaluations.save(run)
+        self.runtime.audit.record(
+            EventType.EVAL_JUDGED,
+            actor=actor,
+            environment=suite.environment,
+            payload={
+                "run": run.id,
+                "suíte": suite.id,
+                "método": metrics["método"],
+                "qualidade_média": metrics["qualidade_média"],
+                "casos": metrics["casos"],
+                "degradados": metrics["degradados"],
+                "reprovado": reproved == "sim",
+            },
+        )
+        return report
+
+    def compare(
+        self,
+        suite: EvaluationSuite,
+        providers: list[str],
+        *,
+        actor: str = "cli",
+    ) -> dict[str, Any]:
+        """Mesma suíte, provedores diferentes: quem entrega mais por menos.
+
+        Só faz sentido onde há modelo: em suíte de agente o provedor é fixado
+        (e devolvido ao valor original no fim). Em suíte de ferramenta ou
+        workflow o provedor não participa — e o relatório diz isso, em vez de
+        sugerir uma diferença que não existe.
+        """
+
+
+        known = {item["name"] for item in self.runtime.gateway.list_providers()}
+        uses_model = str(suite.target_kind) == EvaluationTarget.AGENT
+        agent = self.runtime.agents.get(suite.target) if uses_model else None
+        previous = agent.model.provider if agent else None
+
+        rows: list[dict[str, Any]] = []
+        try:
+            for name in providers:
+                rows.append(
+                    self._compare_one(suite, name, actor=actor, known=known, agent=agent, uses_model=uses_model)
+                )
+        finally:
+            if agent is not None:
+                agent.model.provider = previous
+
+        ranking = sorted(
+            (row for row in rows if row["executou"]),
+            key=lambda row: (-row["qualidade"], row["custo"]),
+        )
+        report = {
+            "suíte": suite.id,
+            "usa_modelo": uses_model,
+            "provedores": rows,
+            "melhor": ranking[0]["provedor"] if ranking else None,
+            "observações": [
+                f"{row['provedor']} não executou: {row['erro']}" for row in rows if not row["executou"]
+            ],
+        }
+        if not uses_model:
+            report["observações"].append(
+                f"suíte de {suite.target_kind} não usa modelo: a comparação repete a mesma execução"
+            )
+        self.runtime.audit.record(
+            EventType.EVAL_COMPARED,
+            actor=actor,
+            environment=suite.environment,
+            payload={
+                "suíte": suite.id,
+                "provedores": providers,
+                "melhor": report["melhor"],
+                "qualidades": {row["provedor"]: row["qualidade"] for row in rows},
+            },
+        )
+        return report
+
+    def _compare_one(
+        self,
+        suite: EvaluationSuite,
+        name: str,
+        *,
+        actor: str,
+        known: set[str],
+        agent,
+        uses_model: bool,
+    ) -> dict[str, Any]:
+        from . import quality
+
+        started = time.perf_counter()
+        row: dict[str, Any] = {
+            "provedor": name,
+            "executou": False,
+            "taxa_de_acerto": 0.0,
+            "qualidade": 0.0,
+            "custo": 0.0,
+            "p95_ms": None,
+            "duração_ms": 0,
+            "veredito": "failed",
+            "erro": "",
+        }
+        if name not in known:
+            row["erro"] = "provedor não configurado"
+            row["duração_ms"] = int((time.perf_counter() - started) * 1000)
+            return row
+        try:
+            if agent is not None:
+                agent.model.provider = name
+            run = self.run(suite, actor=f"{actor}:{name}")
+            elapsed = int((time.perf_counter() - started) * 1000)
+            scores = [
+                quality.judge_case(
+                    self.runtime,
+                    case,
+                    self.answer_for(result.output),
+                    method="similaridade",
+                )
+                for case, result in zip(suite.cases, run.cases, strict=False)
+                if case.expected or case.expected_contains
+            ]
+            metrics = quality.aggregate(scores)
+            row.update(
+                {
+                    "provedor": name,
+                    "executou": True,
+                    "taxa_de_acerto": run.pass_rate,
+                    "qualidade": metrics["qualidade_média"],
+                    "custo": float(run.metrics.get("total_cost", 0.0)),
+                    "p95_ms": run.metrics.get("p95_duration_ms"),
+                    "duração_ms": elapsed,
+                    "veredito": str(run.status),
+                    "erro": "",
+                }
+            )
+        except Exception as exc:
+            row["erro"] = f"{type(exc).__name__}: {exc}"
+            row["duração_ms"] = int((time.perf_counter() - started) * 1000)
+        return row
+
+    def load(
+        self,
+        suite: EvaluationSuite,
+        *,
+        requests: int = 10,
+        concurrency: int = 2,
+        actor: str = "cli",
+    ) -> LoadRun:
+        """Simula carga: a mesma suíte, repetida, sob as mesmas regras."""
+
+        from .load import LoadRunner, record
+
+        runner = LoadRunner(self.runtime, suite)
+        load = runner.run(requests=requests, concurrency=concurrency, actor=actor)
+        return record(self.runtime, load, actor=actor)
 
     # ---- baseline -----------------------------------------------------
     def _resolve_baseline(self, suite: EvaluationSuite, explicit: str | None):

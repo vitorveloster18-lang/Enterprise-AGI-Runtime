@@ -25,6 +25,8 @@ class Thresholds(BaseModel):
     """O mínimo aceitável. Sem limite declarado, o limite é o da empresa por omissão."""
 
     min_pass_rate: float = 1.0
+    #: lacuna 8b: qualidade média mínima (0..1) medida por similaridade ou juiz
+    min_quality: float | None = None
     max_total_cost: float | None = None
     max_p95_duration_ms: int | None = None
     max_regressions: int = 0
@@ -42,6 +44,9 @@ class EvaluationCase(BaseModel):
     #: expressões seguras avaliadas contra o contexto do resultado
     expect: list[str] = Field(default_factory=list)
     expect_ok: bool | None = None
+    #: lacuna 8b: resposta esperada (texto) — base da nota de qualidade
+    expected: str = ""
+    expected_contains: list[str] = Field(default_factory=list)
     max_cost: float | None = None
     max_duration_ms: int | None = None
     tags: list[str] = Field(default_factory=list)
@@ -106,6 +111,73 @@ class CaseResult(BaseModel):
     @property
     def failed_checks(self) -> list[CheckResult]:
         return [check for check in self.checks if not check.ok]
+
+
+class QualityScore(BaseModel):
+    """Lacuna 8b: quanto a resposta se parece com o que era esperado.
+
+    `similaridade` é determinística (roda offline, custa zero, é auditável).
+    `modelo` pede a um provedor que julgue — e custa. Quando o provedor não
+    responde, a nota cai para a similaridade **e o relatório diz que caiu**:
+    laboratório que esconde degradação não serve para decidir.
+    """
+
+    case_id: str
+    method: str = "similaridade"      # similaridade | modelo
+    score: float = 0.0                # 0..1
+    reason: str = ""
+    degraded: bool = False
+    cost: float = 0.0
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "caso": self.case_id,
+            "método": self.method,
+            "nota": round(self.score, 3),
+            "motivo": self.reason or "-",
+            "degradado": self.degraded,
+            "custo": round(self.cost, 6),
+        }
+
+
+class LoadRun(BaseModel):
+    """Lacuna 8b: o Runtime sob carga — números de quem aguenta o tranco."""
+
+    id: str
+    suite_id: str = ""
+    target_kind: str = "tool"
+    target: str = ""
+    requests: int = 0
+    concurrency: int = 1
+    status: str = "passed"            # passed | degraded | failed
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    reasons: list[str] = Field(default_factory=list)
+    created_by: str = "cli"
+    created_at: datetime = Field(default_factory=utcnow)
+    finished_at: datetime | None = None
+    duration_ms: int = 0
+
+    @property
+    def error_rate(self) -> float:
+        return float(self.metrics.get("error_rate", 0.0))
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "suíte": self.suite_id or "-",
+            "alvo": f"{self.target_kind}:{self.target}",
+            "requisições": self.requests,
+            "concorrência": self.concurrency,
+            "por_segundo": self.metrics.get("requests_per_second"),
+            "p50_ms": self.metrics.get("p50_duration_ms"),
+            "p95_ms": self.metrics.get("p95_duration_ms"),
+            "p99_ms": self.metrics.get("p99_duration_ms"),
+            "erros": round(self.error_rate, 4),
+            "custo": round(float(self.metrics.get("total_cost", 0.0)), 6),
+            "orçamento_recusou": self.metrics.get("budget_denials", 0),
+            "situação": self.status,
+            "quando": self.created_at.isoformat(),
+        }
 
 
 class RegressionReport(BaseModel):
@@ -196,6 +268,8 @@ __all__ = [
     "EvaluationSuite",
     "EvaluationTarget",
     "FindingSeverity",
+    "LoadRun",
+    "QualityScore",
     "RegressionReport",
     "SecurityFinding",
     "Thresholds",

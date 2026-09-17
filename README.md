@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 480 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
+| Testes | `tests/` | 512 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 
@@ -434,6 +434,21 @@ estiver nas raízes liberadas — e com teto de tamanho.
 
 Botão não executa: ele repete um comando (`aprovar` → `/aprovar <id>`) e passa
 pelo mesmo pareamento, RBAC, política e auditoria.
+
+**Laboratório de avaliação** (lacuna 8b): a Fase 8 media o encanamento; o
+laboratório mede o que faltava.
+
+```bash
+egr eval judge <suíte> --method similaridade|modelo   # nota 0..1 por caso
+egr eval compare <suíte> --models echo,outro          # quem entrega mais por menos
+egr eval load <suíte> --requests 50 --concurrency 5   # p50/p95/p99, req/s, custo
+egr eval loads                                        # histórico das simulações
+```
+
+Qualidade tem dois caminhos (similaridade determinística e juiz de modelo), e a
+degradação é sempre dita. Carga não suspende governo: cada requisição passa pela
+mesma política e pelo mesmo orçamento — e o que o orçamento recusou é contado à
+parte, porque estourar o teto não é lentidão.
 
 Duas lacunas da Fase 12 também fechadas aqui: o **worker da fila**
 (`egr integration worker`) é o processo explícito que drena o que já venceu —

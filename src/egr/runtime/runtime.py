@@ -57,6 +57,7 @@ from ..storage.repositories import (
     AttachmentRepository,
     ChangeProposalRepository,
     EnterpriseRepository,
+    EvaluationLoadRepository,
     EvaluationRunRepository,
     EvaluationSuiteRepository,
     GatewayBindingRepository,
@@ -183,6 +184,8 @@ class Runtime:
         self.proposals = ChangeProposalRepository(self.db)
         self.suites = EvaluationSuiteRepository(self.db)
         self.evaluations = EvaluationRunRepository(self.db)
+        # lacuna 8b: histórico de simulações de carga
+        self.evaluation_loads = EvaluationLoadRepository(self.db)
         self.releases = ReleaseRepository(self.db)
         self.versions = ArtifactVersionRepository(self.db)
         self.gateway_bindings = GatewayBindingRepository(self.db)
@@ -847,6 +850,11 @@ class Runtime:
                 "by_status": self.evaluations.stats(),
                 "last_by_suite": last_by_suite,
                 "recent": [run.summary() for run in runs[:5]],
+            },
+            # lacuna 8b: laboratório (carga sob pressão governada)
+            "cargas": {
+                "total": self.evaluation_loads.count(),
+                "recentes": [item.summary() for item in self.evaluation_loads.list(limit=5)],
             },
         }
 

@@ -59,6 +59,7 @@ class AgentEngine:
             response = self.runtime.gateway.complete(
                 self.runtime.completion_request(messages, agent),
                 allow_external=agent.model.allow_external,
+                provider=agent.model.provider,   # pin declarado pelo agente (se houver)
                 **request_kwargs,
             )
         except BudgetExceeded:

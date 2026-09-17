@@ -328,4 +328,159 @@ def security(
         raise typer.Exit(code=1)
 
 
+@app.command(name="judge")
+def judge(
+    suite_id: str = typer.Argument(..., help="id da suíte"),
+    method: str = typer.Option("auto", "--method", "-m", help="auto | similaridade | modelo"),
+    as_json: bool = typer.Option(False, "--json"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Julga a qualidade das respostas (0..1) contra o que era esperado."""
+
+    runtime = get_runtime(workspace)
+    suite = _suite(runtime, suite_id)
+    report = runtime.evaluator.judge(suite, method=method, actor="cli")
+    if as_json:
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        return
+    metrics = report["métricas"]
+    kv(
+        f"Qualidade — {suite_id}",
+        {
+            "execução": report["run"],
+            "método": metrics["método"],
+            "casos avaliados": metrics["casos"],
+            "qualidade média": round(metrics["qualidade_média"], 3),
+            "pior nota": metrics["mínima"],
+            "melhor nota": metrics["máxima"],
+            "limite": report["limite"] if report["limite"] is not None else "-",
+            "degradados": metrics["degradados"],
+            "custo do juiz": round(metrics["custo"], 6),
+        },
+    )
+    if report["notas"]:
+        table(
+            "Notas",
+            ["caso", "método", "nota", "motivo"],
+            [[item["caso"], item["método"], item["nota"], item["motivo"][:60]] for item in report["notas"]],
+        )
+    if report["reprovado"] == "sim":
+        warning(f"qualidade abaixo do mínimo ({report['limite']})")
+        raise typer.Exit(code=1)
+    success("qualidade dentro do limite")
+
+
+@app.command(name="compare")
+def compare(
+    suite_id: str = typer.Argument(..., help="id da suíte"),
+    models: str = typer.Option(..., "--models", "-m", help="provedores separados por vírgula"),
+    as_json: bool = typer.Option(False, "--json"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Mesma suíte em provedores diferentes: quem entrega mais por menos."""
+
+    runtime = get_runtime(workspace)
+    suite = _suite(runtime, suite_id)
+    providers = [item.strip() for item in (models or "").split(",") if item.strip()]
+    if not providers:
+        error("informe ao menos um provedor em --models")
+        raise typer.Exit(code=2)
+    report = runtime.evaluator.compare(suite, providers, actor="cli")
+    if as_json:
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        return
+    table(
+        f"Comparação — {suite_id}",
+        ["provedor", "executou", "acerto", "qualidade", "custo", "p95 ms", "veredito"],
+        [
+            [
+                row["provedor"],
+                "sim" if row["executou"] else "não",
+                f"{row['taxa_de_acerto']:.0%}",
+                row["qualidade"],
+                round(row["custo"], 6),
+                row["p95_ms"] if row["p95_ms"] is not None else "-",
+                row["veredito"] if not row["erro"] else row["erro"][:24],
+            ]
+            for row in report["provedores"]
+        ],
+    )
+    for note in report["observações"]:
+        warning(note)
+    if report["melhor"]:
+        success(f"melhor colocação: {report['melhor']}")
+
+
+@app.command(name="load")
+def load(
+    suite_id: str = typer.Argument(..., help="id da suíte"),
+    requests: int = typer.Option(10, "--requests", "-n", help="quantidade de requisições"),
+    concurrency: int = typer.Option(2, "--concurrency", "-c", help="requisições simultâneas"),
+    as_json: bool = typer.Option(False, "--json"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Simula carga: a suíte repetida, sob as mesmas regras e o mesmo orçamento."""
+
+    runtime = get_runtime(workspace)
+    suite = _suite(runtime, suite_id)
+    result = runtime.evaluator.load(suite, requests=requests, concurrency=concurrency, actor="cli")
+    if as_json:
+        typer.echo(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str))
+        return
+    metrics = result.metrics
+    kv(
+        f"Carga — {suite_id}",
+        {
+            "requisições": metrics["requests"],
+            "concorrência": metrics["concurrency"],
+            "por segundo": metrics["requests_per_second"],
+            "p50 / p95 / p99 (ms)": (
+                f"{metrics['p50_duration_ms']} / {metrics['p95_duration_ms']} / {metrics['p99_duration_ms']}"
+            ),
+            "erros": f"{metrics['errors']} ({metrics['error_rate']:.1%})",
+            "recusadas pelo orçamento": metrics["budget_denials"],
+            "custo total": round(metrics["total_cost"], 6),
+            "custo por requisição": round(metrics["cost_per_request"], 8),
+            "situação": result.status,
+        },
+    )
+    for reason in result.reasons:
+        warning(reason)
+    if result.status == "failed":
+        raise typer.Exit(code=1)
+    success(f"carga {result.status} ({metrics['requests_per_second']} req/s)")
+
+
+@app.command(name="loads")
+def loads(
+    suite_id: str = typer.Option(None, "--suite", "-s"),
+    limit: int = typer.Option(10, "--limit", "-l"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Histórico das simulações de carga."""
+
+    runtime = get_runtime(workspace)
+    rows = runtime.evaluation_loads.list(suite_id=suite_id, limit=limit)
+    if not rows:
+        info("nenhuma simulação de carga registrada")
+        return
+    table(
+        "Cargas",
+        ["quando", "alvo", "requisições", "concorrência", "req/s", "p95 ms", "erros", "situação"],
+        [
+            [
+                item.created_at.strftime("%d/%m %H:%M:%S"),
+                f"{item.target_kind}:{item.target}",
+                item.requests,
+                item.concurrency,
+                item.metrics.get("requests_per_second"),
+                item.metrics.get("p95_duration_ms"),
+                item.metrics.get("errors"),
+                item.status,
+            ]
+            for item in rows
+        ],
+    )
+
+
 __all__ = ["app"]

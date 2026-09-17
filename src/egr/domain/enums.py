@@ -101,6 +101,10 @@ class EventType(BaseStrEnum):
     EVAL_RUN_FINISHED = "eval.run_finished"
     EVAL_REGRESSION = "eval.regression"
     EVAL_SECURITY_FINDING = "eval.security_finding"
+    # lacuna 8b: laboratório — qualidade de modelo, comparação e carga
+    EVAL_JUDGED = "eval.judged"
+    EVAL_COMPARED = "eval.compared"
+    EVAL_LOAD_FINISHED = "eval.load_finished"
     # governança (Fase 9): promoção entre ambientes, versionamento e rollback
     RELEASE_CREATED = "release.created"
     RELEASE_SUBMITTED = "release.submitted"

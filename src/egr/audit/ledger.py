@@ -8,6 +8,7 @@ so tampering with any historical record breaks the chain and is detectable with
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 from ..core.hashing import GENESIS, chain_hash
@@ -19,8 +20,16 @@ from ..storage.database import Database
 
 
 class AuditLedger:
+    """Trilha append-only com hash encadeado.
+
+    `record` é atômico: ler o último hash e escrever o próximo precisam ser uma
+    só operação, senão duas threads encadeiam a partir do mesmo anterior — e a
+    cadeia quebra (a carga da lacuna 8b descobriu isso na prática).
+    """
+
     def __init__(self, db: Database):
         self.db = db
+        self._lock = threading.RLock()
 
     # ---- write -------------------------------------------------------
     def record(
@@ -34,38 +43,39 @@ class AuditLedger:
         payload: dict[str, Any] | None = None,
         event_id: str | None = None,
     ) -> Event:
-        previous = self.db.scalar("SELECT hash FROM events ORDER BY seq DESC LIMIT 1") or GENESIS
-        event = Event(
-            id=event_id or new_id("event"),
-            type=type,
-            actor=actor,
-            task_id=task_id,
-            agent_id=agent_id,
-            environment=environment,
-            payload=payload or {},
-            prev_hash=previous,
-        )
-        event.hash = chain_hash(previous, self._hash_payload(event))
-
-        with self.db.transaction():
-            self.db.execute(
-                "INSERT INTO events (id, type, actor, task_id, agent_id, environment, payload, "
-                "created_at, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    event.id,
-                    str(event.type),
-                    event.actor,
-                    event.task_id,
-                    event.agent_id,
-                    str(event.environment),
-                    json.dumps(event.payload, ensure_ascii=False, default=str),
-                    iso(event.created_at),
-                    event.prev_hash,
-                    event.hash,
-                ),
+        with self._lock:
+            previous = self.db.scalar("SELECT hash FROM events ORDER BY seq DESC LIMIT 1") or GENESIS
+            event = Event(
+                id=event_id or new_id("event"),
+                type=type,
+                actor=actor,
+                task_id=task_id,
+                agent_id=agent_id,
+                environment=environment,
+                payload=payload or {},
+                prev_hash=previous,
             )
-        row = self.db.query_one("SELECT seq FROM events WHERE id = ?", (event.id,))
-        event.seq = row["seq"] if row else None
+            event.hash = chain_hash(previous, self._hash_payload(event))
+
+            with self.db.transaction():
+                self.db.execute(
+                    "INSERT INTO events (id, type, actor, task_id, agent_id, environment, payload, "
+                    "created_at, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event.id,
+                        str(event.type),
+                        event.actor,
+                        event.task_id,
+                        event.agent_id,
+                        str(event.environment),
+                        json.dumps(event.payload, ensure_ascii=False, default=str),
+                        iso(event.created_at),
+                        event.prev_hash,
+                        event.hash,
+                    ),
+                )
+            row = self.db.query_one("SELECT seq FROM events WHERE id = ?", (event.id,))
+            event.seq = row["seq"] if row else None
         return event
 
     @staticmethod
