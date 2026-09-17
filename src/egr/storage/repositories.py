@@ -18,6 +18,7 @@ from ..domain.evaluation import EvaluationRun, EvaluationSuite
 from ..domain.memory import MemoryRecord
 from ..domain.policy import Policy
 from ..domain.proposal import ChangeProposal
+from ..domain.release import ArtifactVersion, Release
 from ..domain.run import WorkflowRun
 from ..domain.task import Task
 from ..security.identity import IdentityToken, Principal
@@ -935,7 +936,7 @@ class EvaluationRunRepository:
             params.append(target)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.db.query(
-            f"SELECT * FROM evaluation_runs {where} ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM evaluation_runs {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
             (*params, limit),
         )
         return [_load(row, EvaluationRun) for row in rows]
@@ -950,3 +951,101 @@ class EvaluationRunRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM evaluation_runs") or 0)
+
+
+class ReleaseRepository:
+    """Fase 9: promoções entre ambientes."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, release: Release) -> Release:
+        release.updated_at = utcnow()
+        self.db.execute(
+            "INSERT INTO releases (id, target, status, rollback_of, data, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data, "
+            "updated_at = excluded.updated_at",
+            (
+                release.id,
+                str(release.target),
+                str(release.status),
+                release.rollback_of,
+                _dump(release),
+                iso(release.created_at),
+                iso(release.updated_at),
+            ),
+        )
+        self.db.commit()
+        return release
+
+    def get(self, release_id: str) -> Release | None:
+        row = self.db.query_one("SELECT * FROM releases WHERE id = ?", (release_id,))
+        return _load(row, Release) if row else None
+
+    def list(self, status: str | None = None, target: str | None = None, limit: int = 20) -> list[Release]:
+        clauses, params = [], []
+        if status:
+            clauses.append("status = ?")
+            params.append(str(status))
+        if target:
+            clauses.append("target = ?")
+            params.append(str(target))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM releases {where} ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (*params, limit),
+        )
+        return [_load(row, Release) for row in rows]
+
+    def stats(self) -> dict[str, int]:
+        rows = self.db.query("SELECT status, COUNT(*) AS total FROM releases GROUP BY status")
+        return {row["status"]: row["total"] for row in rows}
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM releases") or 0)
+
+
+class ArtifactVersionRepository:
+    """Snapshots de conteúdo: a matéria-prima do rollback."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, version: ArtifactVersion) -> ArtifactVersion:
+        self.db.execute(
+            "INSERT INTO artifact_versions (id, kind, name, revision, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+            (
+                version.id,
+                version.kind,
+                version.name,
+                version.revision,
+                _dump(version),
+                iso(version.created_at),
+            ),
+        )
+        self.db.commit()
+        return version
+
+    def get(self, version_id: str) -> ArtifactVersion | None:
+        row = self.db.query_one("SELECT * FROM artifact_versions WHERE id = ?", (version_id,))
+        return _load(row, ArtifactVersion) if row else None
+
+    def list(self, kind: str | None = None, name: str | None = None, limit: int = 100) -> list[ArtifactVersion]:
+        clauses, params = [], []
+        if kind:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if name:
+            clauses.append("name = ?")
+            params.append(name)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(
+            f"SELECT * FROM artifact_versions {where} ORDER BY revision DESC LIMIT ?", (*params, limit)
+        )
+        return [_load(row, ArtifactVersion) for row in rows]
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM artifact_versions") or 0)

@@ -18,6 +18,8 @@ from .commands import (
     memory,
     models,
     policies,
+    proposals,
+    releases,
     security,
     tasks,
     tools,
@@ -56,7 +58,10 @@ app.add_typer(dev.app, name="dev")
 # avaliação (Fase 8): provar qualidade, custo, latência e segurança
 app.add_typer(evaluation.app, name="eval")
 app.add_typer(mcp.app, name="mcp")
-app.add_typer(governance.app, name="proposal")
+app.add_typer(proposals.app, name="proposal")
+# governança de produção (Fase 9): promoção com versão, evidência e volta
+app.add_typer(releases.app, name="release")
+app.add_typer(governance.app, name="lifecycle")
 # segurança (Fase 4): identidade, RBAC, cofre e chaves
 app.add_typer(security.app, name="security")
 app.add_typer(security.identity_app, name="identity")

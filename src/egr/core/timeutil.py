@@ -10,8 +10,15 @@ def utcnow() -> datetime:
 
 
 def iso(dt: datetime | None = None) -> str:
+    """ISO-8601 UTC com microssegundos.
+
+    Precisão importa: colunas de ordenação (`ORDER BY created_at DESC`) com
+    truncagem em segundos empatam execuções feitas no mesmo segundo, e o
+    "último" registro passa a depender da ordem física da tabela.
+    """
+
     dt = dt or utcnow()
-    return dt.isoformat(timespec="seconds")
+    return dt.isoformat(timespec="microseconds")
 
 
 def parse(value: str | datetime | None) -> datetime | None:

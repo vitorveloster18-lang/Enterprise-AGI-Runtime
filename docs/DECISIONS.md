@@ -554,3 +554,77 @@ de acerto, e gera evento `eval.security_finding`.
 **Consequências:** prova funcional não compra imunidade de governo. O veredito
 junta as duas perguntas que o Runtime precisa responder: *faz o que promete?* e
 *não pode mais do que promete?*
+
+---
+
+## ADR-033 · Promoção é um release com gates, nunca um comando direto
+
+**Status:** aceita (Fase 9).
+
+**Contexto:** "publicar em produção" costuma ser um comando que copia um arquivo
+de um lugar para outro. Sem objeto que represente a promoção, não há onde
+pendurar evidência, aprovação ou volta — sobra a memória de quem executou.
+
+**Decisão:** promover é criar um `Release` com itens versionados, gates
+conferidos (`escada`, `estágio`, `artefato`, `evidência`, `segurança`) e
+evidência ligada às execuções da Fase 8. O ciclo é
+`create → submit → approve (humano) → deploy`; `submit` e `deploy` recusam
+quando os gates reprovam, mesmo que a aprovação já tenha acontecido.
+
+**Consequências:** promoção vira um objeto consultável e auditável
+(`release.created/submitted/approved/deployed/rolled_back`); um release que
+ninguém aprovou não sai do lugar; nada chega a produção sem passar por staging.
+
+---
+
+## ADR-034 · Versão é snapshot do conteúdo, identificada por impressão digital
+
+**Status:** aceita (Fase 9).
+
+**Contexto:** número de versão declarado em YAML é editable por anyone e não
+garante que o conteúdo seja aquele. Rollback que depende de "a versão anterior
+que eu lembro" é arqueologia.
+
+**Decisão:** `ArtifactVersion` guarda o conteúdo completo e `sha256[:16]` dele.
+Snapshot repetido com conteúdo igual é no-op (não cria revisão). Artefato que
+declara `version:` usa esse rótulo; ferramenta Python usa `r<n>`.
+
+**Consequências:** rollback escreve de volta exatamente o que existia e
+recarrega o Runtime; o custo é armazenar conteúdo (aceitável no porte de
+workspace que o EGR governa).
+
+---
+
+## ADR-035 · Produção exige papel mínimo maior e staging já aplicado
+
+**Status:** aceita (Fase 9).
+
+**Contexto:** tratar staging e produção com a mesma régua transforma o degrau
+mais caro em rotina.
+
+**Decisão:** promover para staging exige `operator`; para produção exige
+`security.approval_min_role` (padrão `approver`). Além disso, o gate `estágio`
+só libera produção quando existe um release `deployed` em staging para aquele
+item. Com `identity_required`, sem principal autenticado a API responde **401**
+e sem permissão **403** — nunca um "ok" silencioso.
+
+**Consequências:** a régua sobe com o custo do erro; agentes não aprovam a
+própria promoção (`allow_agent_approval: false` por padrão).
+
+---
+
+## ADR-036 · Rollback restaura a revisão capturada pelo release
+
+**Status:** aceita (Fase 9).
+
+**Contexto:** "voltar para a versão anterior" é ambíguo quando houve edições
+entre a promoção e o problema.
+
+**Decisão:** o release versiona o estado imediatamente anterior a ele mesmo;
+`rollback` restaura exatamente essa revisão e devolve o ambiente de origem
+(`set_environment(from_environment)`). Se o snapshot não estiver mais
+disponível, o rollback é recusado com erro explícito — não improvisa.
+
+**Consequências:** voltar é determinístico e auditado (`release.rolled_back` com
+o release de origem); o artefato volta ao ambiente de onde saiu em vez de ficar
+em um estado inventado.

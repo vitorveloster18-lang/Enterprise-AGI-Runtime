@@ -143,7 +143,19 @@ step "13/14 · Fase 8 — Evaluation (suíte, métricas, veredito)"
 "$EGR_BIN" eval runs || true
 "$EGR_BIN" eval security agent document-agent || true
 
-step "14/14 · auditoria e memória"
+step "14/15 · Fase 9 — Production Governance (release, gates, promoção, rollback)"
+"$EGR_BIN" release status || true
+RELEASE_ID=$("$EGR_BIN" release create workflow:invoice-processing --to staging --reason "demo" | sed -n 's/.*\(rel_[A-Za-z0-9_]*\).*/\1/p' | head -1)
+if [ -n "$RELEASE_ID" ]; then
+  "$EGR_BIN" release submit "$RELEASE_ID" || true
+  "$EGR_BIN" release approve "$RELEASE_ID" --by human:vitor --note "demo" || true
+  "$EGR_BIN" release deploy "$RELEASE_ID" --by human:vitor || true
+  "$EGR_BIN" release rollback "$RELEASE_ID" --by human:vitor --note "demo" || true
+fi
+"$EGR_BIN" release versions workflow invoice-processing || true
+"$EGR_BIN" release list || true
+
+step "15/15 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

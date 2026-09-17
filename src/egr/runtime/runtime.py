@@ -36,6 +36,7 @@ from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
 from ..policies import PolicyEngine, default_policies
 from ..policies.engine import PolicyContext
+from ..release.manager import ReleaseManager
 from ..security.identity import IdentityService, PrincipalKind
 from ..security.keystore import MasterKey, MasterKeyStore
 from ..security.rbac import APPROVAL_DECIDE, PERMISSIONS, ROLES, has_permission, role_satisfies
@@ -46,6 +47,7 @@ from ..storage.repositories import (
     AgentRepository,
     ApprovalRepository,
     ArtifactRepository,
+    ArtifactVersionRepository,
     ChangeProposalRepository,
     EnterpriseRepository,
     EvaluationRunRepository,
@@ -55,6 +57,7 @@ from ..storage.repositories import (
     MemoryRepository,
     ModelUsageRepository,
     PolicyRepository,
+    ReleaseRepository,
     SecretRepository,
     SettingsRepository,
     TaskRepository,
@@ -166,6 +169,8 @@ class Runtime:
         self.proposals = ChangeProposalRepository(self.db)
         self.suites = EvaluationSuiteRepository(self.db)
         self.evaluations = EvaluationRunRepository(self.db)
+        self.releases = ReleaseRepository(self.db)
+        self.versions = ArtifactVersionRepository(self.db)
 
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
@@ -197,6 +202,7 @@ class Runtime:
         self.workbench = Workbench(self)
         self.evaluator = EvaluationRunner(self)
         self.evaluation_suites = self._load_suites()
+        self.release_manager = ReleaseManager(self)
         self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
@@ -741,6 +747,11 @@ class Runtime:
             },
         }
 
+    def governance_status(self) -> dict[str, Any]:
+        """Promoção entre ambientes: releases, versões e o que está aplicado."""
+
+        return self.release_manager.status()
+
     def evaluation_status(self) -> dict[str, Any]:
         """Raio-X da avaliação: suítes, últimos vereditos, custo e latência."""
 
@@ -883,6 +894,7 @@ class Runtime:
             "orchestration": self.orchestration_status(),
             "development": self.dev_status(),
             "evaluation": self.evaluation_status(),
+            "governance": self.governance_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -1006,6 +1018,14 @@ class Runtime:
             )
         for name, report in self.gateway.health().items():
             add(f"model:{name}", report["healthy"], report["detail"])
+        governance = self.governance_status()
+        add(
+            "governance",
+            governance["releases"]["total"] > 0 or governance["versions"]["total"] == 0,
+            f"{governance['releases']['total']} release(s), "
+            f"{governance['versions']['total']} versão(ões) de artefato, "
+            f"aplicados: {', '.join(f'{k}={len(v)}' for k, v in governance['deployed'].items()) or '-'}",
+        )
         evaluation = self.evaluation_status()
         add(
             "evaluation",

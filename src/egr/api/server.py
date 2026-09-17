@@ -28,6 +28,7 @@ TAGS = [
     {"name": "orchestration", "description": "Workflows, execuções, agenda e webhooks"},
     {"name": "development", "description": "Propostas de mudança: criar agents/tools/workflows sob governo"},
     {"name": "evaluation", "description": "Casos, métricas, baseline, regressão e varredura de segurança"},
+    {"name": "release", "description": "Promoção dev → staging → produção, versões e rollback"},
 ]
 
 
@@ -64,6 +65,25 @@ class ProposalDecision(BaseModel):
     note: str = ""
     args: dict = {}
     timeout: int = 10
+
+
+class ReleaseItemRequest(BaseModel):
+    kind: str
+    name: str
+
+
+class ReleaseCreateRequest(BaseModel):
+    items: list[ReleaseItemRequest]
+    target: str = "staging"
+    title: str = ""
+    reason: str = ""
+    created_by: str = "api"
+
+
+class ReleaseDecisionRequest(BaseModel):
+    by: str = "human:api"
+    token: str | None = None
+    note: str = ""
 
 
 class EvaluationRunRequest(BaseModel):
@@ -420,6 +440,113 @@ def create_app(runtime: Runtime) -> FastAPI:
         """Varredura de segurança de um artefato (sem executá-lo)."""
 
         return [finding.model_dump(mode="json") for finding in security_scan(runtime, target_kind, target)]
+
+    @app.get("/v1/release", tags=["release"])
+    def release_status() -> dict[str, Any]:
+        """Onde cada artefato está na escada de ambientes."""
+
+        return runtime.governance_status()
+
+    @app.post("/v1/release", tags=["release"])
+    def release_create(request: ReleaseCreateRequest) -> dict[str, Any]:
+        """Cria um release: tira snapshot dos itens e confere os gates."""
+
+        try:
+            release = runtime.release_manager.create(
+                [(item.kind, item.name) for item in request.items],
+                target=request.target,
+                title=request.title or "",
+                reason=request.reason or "",
+                created_by=request.created_by or "api",
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return release.summary()
+
+    @app.get("/v1/releases", tags=["release"])
+    def release_list(status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        """Histórico de promoções (o que foi promovido, por quem e com qual evidência)."""
+
+        return [release.summary() for release in runtime.release_manager.list(status=status, limit=limit)]
+
+    @app.get("/v1/release/{release_id}", tags=["release"])
+    def release_show(release_id: str) -> dict[str, Any]:
+        """Um release por completo: itens, gates, evidência e decisão."""
+
+        try:
+            return runtime.release_manager.get(release_id).model_dump(mode="json")
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/v1/release/{release_id}/check", tags=["release"])
+    def release_check(release_id: str) -> dict[str, Any]:
+        """Reconfere os gates (a evidência pode ter mudado desde a criação)."""
+
+        try:
+            return runtime.release_manager.check(release_id).summary()
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/v1/release/{release_id}/submit", tags=["release"])
+    def release_submit(release_id: str) -> dict[str, Any]:
+        """Submete à aprovação humana. Falha se os gates reprovarem."""
+
+        try:
+            return runtime.release_manager.submit(release_id).summary()
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/release/{release_id}/approve", tags=["release"])
+    def release_approve(release_id: str, request: ReleaseDecisionRequest) -> dict[str, Any]:
+        """Aprovação humana. Produção exige papel mais alto que staging."""
+
+        try:
+            release = runtime.release_manager.approve(
+                release_id, request.by, token=request.token, note=request.note or ""
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except AuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except AuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        return release.summary()
+
+    @app.post("/v1/release/{release_id}/reject", tags=["release"])
+    def release_reject(release_id: str, request: ReleaseDecisionRequest) -> dict[str, Any]:
+        """Recusa um release."""
+
+        try:
+            return runtime.release_manager.reject(release_id, request.by, note=request.note or "").summary()
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/release/{release_id}/deploy", tags=["release"])
+    def release_deploy(release_id: str, request: ReleaseDecisionRequest) -> dict[str, Any]:
+        """Aplica um release aprovado no ambiente de destino."""
+
+        try:
+            return runtime.release_manager.deploy(release_id, actor=request.by).summary()
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/release/{release_id}/rollback", tags=["release"])
+    def release_rollback(release_id: str, request: ReleaseDecisionRequest) -> dict[str, Any]:
+        """Volta cada item para a revisão anterior à deste release."""
+
+        try:
+            return runtime.release_manager.rollback(release_id, actor=request.by, note=request.note or "").summary()
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/v1/release/versions/{kind}/{name}", tags=["release"])
+    def release_versions(kind: str, name: str) -> list[dict[str, Any]]:
+        """Versões (snapshots) de um artefato — o que o rollback pode restaurar."""
+
+        return [
+            version.model_dump(mode="json")
+            for version in runtime.release_manager.versions.versions(kind, name)
+        ]
 
     # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])

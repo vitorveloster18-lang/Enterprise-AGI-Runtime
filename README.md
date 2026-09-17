@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 8 implementadas** (V1: Foundation → Orchestration; V2: Development Environment e Evaluation) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 9 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation e Production Governance) · Python-first.
 
 ---
 
@@ -122,7 +122,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 192 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão) |
+| Testes | `tests/` | 233 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, release/gates/versão/rollback) |
 
 ## 6. Comandos principais
 
@@ -338,6 +338,23 @@ thresholds:
 
 Métricas (acerto, custo, p95) comparadas contra uma **baseline explícita**:
 caso que passava e passou a falhar é regressão declarada, não lembrança.
+
+## 5.7 Production Governance (Fase 9)
+
+```bash
+egr eval smoke workflow invoice-processing         # evidência primeiro
+egr release create workflow:invoice-processing --to staging
+egr release submit <id> && egr release approve <id> --by vitor --token egr_...
+egr release deploy <id> --by vitor                 # só aprovados são aplicados
+egr release versions workflow invoice-processing   # snapshots (o que pode voltar)
+egr release rollback <id> --by vitor               # restaura e devolve o ambiente
+```
+
+`development → staging → production`, um degrau por vez: os gates conferem
+escada, staging já aplicado, existência do artefato, **avaliação aprovada da
+versão atual** e varredura de segurança sem achado crítico. Produção exige
+`approver`; sem identidade verificada a API responde 401, sem permissão 403.
+Versão é snapshot do conteúdo (`sha256[:16]`): rollback restaura — não reconstrói.
 Achado crítico de segurança reprova a execução **mesmo com todos os casos
 passando** — prova funcional não compra imunidade de governo.
 
@@ -405,6 +422,7 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE6_ORCHESTRATION.md`](docs/PHASE6_ORCHESTRATION.md) — Fase 6 (DAG, retry, compensação, agenda, webhooks)
 - [`docs/PHASE7_DEV_ENVIRONMENT.md`](docs/PHASE7_DEV_ENVIRONMENT.md) — Fase 7 (proposta verificada, prova em sandbox, aprovação humana)
 - [`docs/PHASE8_EVALUATION.md`](docs/PHASE8_EVALUATION.md) — Fase 8 (suítes, métricas, baseline, regressão, segurança)
+- [`docs/PHASE9_GOVERNANCE.md`](docs/PHASE9_GOVERNANCE.md) — Fase 9 (release, gates de promoção, versão por snapshot, rollback)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 

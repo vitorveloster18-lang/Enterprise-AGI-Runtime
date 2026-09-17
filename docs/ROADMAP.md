@@ -1,6 +1,6 @@
 # Roadmap — Fases 0 a 12
 
-Situação em 2026-09: **Fases 0 a 8 implementadas e testadas** (192 testes).
+Situação em 2026-09: **Fases 0 a 9 implementadas e testadas** (233 testes).
 
 | Fase | Nome | Situação | Observação |
 |---|---|---|---|
@@ -12,12 +12,12 @@ Situação em 2026-09: **Fases 0 a 8 implementadas e testadas** (192 testes).
 | 5 | Memory | ✅ | knowledge/operational/episodic/**semantic** com embedding local determinístico, recuperação híbrida (BM25 + cosseno via RRF), ciclo de vida (reforço/decaimento/saliência) e consolidação com arquivamento |
 | 5b | — | — | Fase 5 não cobre memória multimodal, nem limpeza automática de PII na escrita — avaliação de qualidade entra na Fase 8 |
 | 6b | — | — | Fase 6 não cobre coordenação negociada entre agentes (handoff/leilão de tarefas) nem triggers de banco de dados — Fase 11 |
-| 7b | — | — | Fase 7 não prova *qualidade* do artefato (só que ele é seguro e roda), nem promove entre ambientes — Fases 8 e 9 |
-| 8b | — | — | Fase 8 não mede qualidade de **modelo** (só o encanamento), nem simula carga — laboratório de avaliação e Fase 9 |
+| 8b | — | — | Fase 8 não mede qualidade de **modelo** (só o encanamento), nem simula carga — laboratório de avaliação |
+| 9b | — | — | Fase 9 promove dentro do workspace e não tem assinatura criptográfica nem quórum de aprovação — evolução de política |
 | 6 | Orchestration | ✅ | execução como objeto auditado, DAG com condição/retry/compensação/tolerância, paralelismo por nível, retomada e cancelamento, scheduler cron idempotente, gatilho por evento e webhook |
 | 7 | Development Environment | ✅ | proposta verificada (AST) + prova em sandbox + aprovação humana; agentes criam agents/tools/workflows sem nunca aplicar |
 | 8 | Evaluation | ✅ | suítes com casos medidos, métricas (acerto/custo/p95), limites, baseline e regressão, varredura de segurança do artefato |
-| 9 | Production Governance | ⏳ | promoção dev→staging→proposta→humano→produção, versionamento e rollback |
+| 9 | Production Governance | ✅ | release com gates (escada, evidência, segurança), versão por snapshot e rollback; produção exige staging aplicado + papel mínimo |
 | 10 | Remote Control | ⏳ | gateways Telegram/Slack/Web sobre a API local |
 | 11 | Enterprise Integrations | ⏳ | REST, GraphQL, SQL, webhooks, MCP, e-mail, browser; depois ERP/CRM/RH |
 | 12 | Vertical Packs | ⏳ | Finance, Accounting, Sales, Operations, HR, Marketing, Support |

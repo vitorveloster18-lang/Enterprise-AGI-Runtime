@@ -409,6 +409,13 @@ class Workbench:
         ]
         return proposal.content.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
 
+    def reload_tools(self) -> None:
+        """Recarrega as ferramentas do workspace (promoção, rollback, edição)."""
+
+        from ..domain.enums import Environment
+
+        self._reload_tools_for(Environment(str(self.runtime.settings.environment)))
+
     def _reload(self, proposal: ChangeProposal) -> None:
         runtime = self.runtime
         if proposal.kind == ProposalKind.AGENT:
@@ -419,12 +426,12 @@ class Workbench:
         elif proposal.kind == ProposalKind.POLICY:
             runtime.sync_policies()
         elif proposal.kind == ProposalKind.TOOL:
-            self._reload_tools(proposal)
+            self._reload_tools_for(proposal.environment)
 
-    def _reload_tools(self, proposal: ChangeProposal) -> None:
+    def _reload_tools_for(self, environment: Environment) -> None:
         runtime = self.runtime
         tools_dir = self.workspace / "tools"
-        report = load_tool_dir(tools_dir, audit=runtime.audit, environment=str(proposal.environment))
+        report = load_tool_dir(tools_dir, audit=runtime.audit, environment=str(environment))
         runtime.tool_load_rejections = [
             {**item, "file": item["file"]} for item in report.rejected
         ]
@@ -433,7 +440,7 @@ class Workbench:
         runtime.audit.record(
             EventType.DEV_TOOL_LOADED,
             actor="runtime",
-            environment=proposal.environment,
+            environment=environment,
             payload={"loaded": report.names, "rejected": [item["file"] for item in report.rejected]},
         )
 

@@ -101,6 +101,14 @@ class EventType(BaseStrEnum):
     EVAL_RUN_FINISHED = "eval.run_finished"
     EVAL_REGRESSION = "eval.regression"
     EVAL_SECURITY_FINDING = "eval.security_finding"
+    # governança (Fase 9): promoção entre ambientes, versionamento e rollback
+    RELEASE_CREATED = "release.created"
+    RELEASE_SUBMITTED = "release.submitted"
+    RELEASE_APPROVED = "release.approved"
+    RELEASE_REJECTED = "release.rejected"
+    RELEASE_DEPLOYED = "release.deployed"
+    RELEASE_ROLLED_BACK = "release.rolled_back"
+    ARTIFACT_VERSIONED = "artifact.versioned"
     # system
     SYSTEM_EVENT = "system.event"
 
@@ -171,6 +179,18 @@ class EvaluationStatus(BaseStrEnum):
     FAILED = "failed"        # abaixo do mínimo aceitável
     REGRESSED = "regressed"  # piorou em relação à baseline
     ERROR = "error"          # nem deu para avaliar (alvo ausente/quebrado)
+
+
+class ReleaseStatus(BaseStrEnum):
+    """Ciclo de uma promoção entre ambientes (Fase 9)."""
+
+    DRAFT = "draft"            # montada, ainda não conferida
+    SUBMITTED = "submitted"    # conferida e proposta ao humano
+    APPROVED = "approved"      # humano aprovou
+    DEPLOYED = "deployed"      # aplicada no ambiente de destino
+    REJECTED = "rejected"      # humano recusou
+    ROLLED_BACK = "rolled_back"  # revertida depois de aplicada
+    FAILED = "failed"          # reprovada nos gates
 
 
 class FindingSeverity(BaseStrEnum):
