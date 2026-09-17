@@ -35,6 +35,7 @@ TAGS = [
         "name": "integrations",
         "description": "Conectores (REST/GraphQL/SQL/webhook): chamada governada e evento idempotente",
     },
+    {"name": "packs", "description": "Packs verticais: catálogo instalado por proposta aprovada"},
 ]
 
 
@@ -787,6 +788,52 @@ def create_app(runtime: Runtime) -> FastAPI:
         if str(event.status) == "rejected":
             raise HTTPException(status_code=401, detail=event.error or "evento recusado")
         return event.summary()
+
+    # ------------------------------------------------------------------
+    @app.get("/v1/packs", tags=["packs"])
+    def packs() -> dict[str, Any]:
+        """Catálogo de packs e o que este workspace já instalou."""
+
+        return runtime.packs_status()
+
+    @app.get("/v1/packs/{pack_id}", tags=["packs"])
+    def pack_show(pack_id: str) -> dict[str, Any]:
+        """O que vem dentro do pack (e o que ele exige)."""
+
+        try:
+            item = runtime.packs.get(pack_id)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {**item.model_dump(mode="json"), "arquivos": runtime.packs.plan(item)}
+
+    @app.get("/v1/packs/{pack_id}/check", tags=["packs"])
+    def pack_check(pack_id: str) -> list[dict[str, Any]]:
+        """Verificação estática: requisitos, ambiente e colisões."""
+
+        try:
+            item = runtime.packs.get(pack_id)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return runtime.packs.check(item)
+
+    @app.post("/v1/packs/{pack_id}/install", tags=["packs"])
+    def pack_install(pack_id: str, by: str = "human:api", rationale: str = "") -> dict[str, Any]:
+        """Propõe a instalação. Nada é escrito sem aprovação humana."""
+
+        try:
+            proposal = runtime.packs.propose(pack_id, actor=by, rationale=rationale)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return proposal.summary()
+
+    @app.delete("/v1/packs/{pack_id}", tags=["packs"])
+    def pack_remove(pack_id: str, by: str = "human:api") -> dict[str, Any]:
+        """Remove o que o pack escreveu, preservando o que foi editado depois."""
+
+        try:
+            return runtime.packs.remove(pack_id, actor=by)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
     @app.get("/v1/security", tags=["security"])

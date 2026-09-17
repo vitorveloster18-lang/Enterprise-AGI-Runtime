@@ -1,0 +1,116 @@
+id: marketing
+name: Marketing
+version: 1.0.0
+vertical: Marketing
+description: >
+  Campanhas e conteúdo: agente de campanha, workflow de produção de peças,
+  política de envio em massa (aprovação sempre) e leitura da plataforma.
+requires:
+  tools: [filesystem.read, database.query]
+  min_environment: development
+agents:
+  - id: marketing-agent
+    name: Marketing Agent
+    version: 1.0.0
+    objective: Produzir campanhas e conteúdo coerentes com a marca e o orçamento
+    model:
+      capability: reasoning
+      temperature: 0.6
+    memory:
+      - marketing
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+      namespaces:
+        - marketing
+        - default
+      max_risk: medium
+    environment: development
+workflows:
+  - id: campanha-conteudo
+    name: Produção de campanha
+    version: 1.0.0
+    description: briefing -> peças -> política de envio -> agendamento
+    environment: development
+    on_error: fail
+    inputs:
+      canal: email
+    steps:
+      - id: s1
+        agent: marketing-agent
+        objective: Transformar o briefing em peças de campanha com chamada e prova
+        outputs:
+          pecas: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        policy: marketing-envio
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s3
+        depends_on: [s2]
+        objective: Registrar a campanha produzida na memória do namespace marketing
+        namespace: marketing
+policies:
+  - id: marketing-envio
+    name: Política de envio em massa
+    version: 1.0.0
+    description: "envio para a base é ato de marca — sempre aprovado por humano"
+    priority: 65
+    enabled: true
+    rules:
+      - id: envio-massa
+        action: email.send
+        condition: recipients > 1
+        decision: require_approval
+        required_role: marketing_manager
+        reason: envio para mais de um destinatário exige gestor de marketing
+      - id: envio-producao
+        action: marketing.publish
+        condition: environment == 'production'
+        decision: require_approval
+        required_role: marketing_manager
+        reason: publicar em produção sempre passa por humano
+      - id: rascunho-livre
+        action: marketing.draft
+        decision: allow
+        reason: rascunho é livre
+integrations:
+  - id: MKT
+    name: Plataforma de marketing
+    type: rest
+    description: leitura de campanhas, públicos e métricas
+    enabled: false
+    base_url: https://mkt.exemplo.com.br/api/v1
+    auth:
+      scheme: bearer
+      secret: MKT_TOKEN
+    allowed_hosts: [mkt.exemplo.com.br]
+    allowed_methods: [GET]
+    read_only: true
+    timeout: 20
+    cost_per_call: 0.003
+evaluations:
+  - id: marketing-campanha
+    name: Produção de campanha
+    target_kind: workflow
+    target: campanha-conteudo
+    cases:
+      - id: briefing-completo
+        args: {canal: email}
+        expect_ok: true
+        max_duration_ms: 60000
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-marketing.md: |
+    # Política de Marketing
+
+    - Envio para mais de um destinatário exige aprovação do gestor.
+    - Campanha publicada carrega briefing, peças e quem aprovou.
+    - Métricas de campanha vêm da plataforma por conector declarado.
+    - Lista de contatos nunca sai do Runtime sem base legal.

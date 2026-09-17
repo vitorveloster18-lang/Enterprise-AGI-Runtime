@@ -121,6 +121,10 @@ class EventType(BaseStrEnum):
     INTEGRATION_TESTED = "integration.tested"
     INTEGRATION_EVENT_RECEIVED = "integration.event_received"
     INTEGRATION_EVENT_REJECTED = "integration.event_rejected"
+    # pacotes verticais (Fase 12): instalados por proposta, nunca por atalho
+    PACK_INSTALLED = "pack.installed"
+    PACK_REMOVED = "pack.removed"
+    PACK_DENIED = "pack.denied"
     # system
     SYSTEM_EVENT = "system.event"
 
@@ -189,6 +193,15 @@ class StepRunStatus(BaseStrEnum):
     CANCELLED = "cancelled"
 
 
+class PackStatus(BaseStrEnum):
+    """Situação de um pacote vertical neste workspace."""
+
+    AVAILABLE = "available"   # existe no catálogo, não instalado
+    PROPOSED = "proposed"     # proposta criada, esperando verificação/aprovação
+    INSTALLED = "installed"   # aplicado: arquivos no workspace e registro no banco
+    OUTDATED = "outdated"     # instalado em versão diferente da do catálogo
+
+
 class ProposalKind(BaseStrEnum):
     """Artefatos que o Runtime pode criar sob proposta (Fase 7)."""
 
@@ -196,6 +209,7 @@ class ProposalKind(BaseStrEnum):
     TOOL = "tool"
     WORKFLOW = "workflow"
     POLICY = "policy"
+    PACK = "pack"
 
 
 class ProposalStatus(BaseStrEnum):
@@ -262,6 +276,7 @@ class ArtifactKind(BaseStrEnum):
     TOOL = "tool"
     WORKFLOW = "workflow"
     POLICY = "policy"
+    PACK = "pack"
     EVALUATION = "evaluation"
     PROPOSAL = "proposal"
 

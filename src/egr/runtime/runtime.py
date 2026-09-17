@@ -10,7 +10,7 @@ from typing import Any
 
 from ..audit import AuditLedger
 from ..core.config import Settings, load_settings
-from ..core.errors import AuthenticationError, AuthorizationError
+from ..core.errors import AuthenticationError, AuthorizationError, ConfigError
 from ..core.ids import new_id
 from ..core.logging import get_logger, setup_logging
 from ..core.paths import find_workspace_root, require_workspace_root
@@ -23,10 +23,12 @@ from ..domain.enums import (
     ApprovalStatus,
     Environment,
     EventType,
+    ProposalStatus,
     RiskLevel,
     TaskStatus,
 )
 from ..domain.evaluation import EvaluationSuite
+from ..domain.proposal import ChangeProposal
 from ..domain.task import StepRecord, Task, TaskResult
 from ..domain.tool import ToolRequest
 from ..evaluation.loader import load_suite_dir
@@ -37,6 +39,7 @@ from ..integrations import ConnectorService
 from ..memory import MemoryService
 from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
+from ..packs import PackService
 from ..policies import PolicyEngine, default_policies
 from ..policies.engine import PolicyContext
 from ..release.manager import ReleaseManager
@@ -64,6 +67,7 @@ from ..storage.repositories import (
     KeyRepository,
     MemoryRepository,
     ModelUsageRepository,
+    PackRepository,
     PolicyRepository,
     ReleaseRepository,
     SecretRepository,
@@ -185,6 +189,8 @@ class Runtime:
         self.integrations_repository = IntegrationRepository(self.db)
         self.integration_calls = IntegrationCallRepository(self.db)
         self.integration_events = IntegrationEventRepository(self.db)
+        # Fase 12: pacotes verticais instalados
+        self.packs_repository = PackRepository(self.db)
 
         # ---- intelligence -------------------------------------------
         self.policy = PolicyEngine()
@@ -223,6 +229,8 @@ class Runtime:
         # Fase 11: conectores declarados em `integrations/*.yaml`
         self.connectors = ConnectorService(self)
         self._load_integrations()
+        # Fase 12: catálogo de pacotes verticais (instalação é proposta)
+        self.packs = PackService(self)
         self.scheduler = WorkflowScheduler(self)
 
         # ---- bootstrap ----------------------------------------------
@@ -276,6 +284,11 @@ class Runtime:
         """Conectores declarados entram no registro em memória."""
 
         self.connectors.load()
+
+    def packs_status(self) -> dict[str, Any]:
+        """Fase 12: o que a empresa já instalou e o que ainda pode instalar."""
+
+        return self.packs.status()
 
     def integrations_status(self) -> dict[str, Any]:
         """Fase 11: com quem o Runtime conversa — e o que isso custou."""
@@ -838,6 +851,95 @@ class Runtime:
         return self.workbench.status()
 
     # ---- desenvolvimento (Fase 7) ------------------------------------
+    # ---- delegação do CLI `egr proposal` (Fase 7/8) ------------------
+    def dev_propose(self, kind: str, name: str, content: str, rationale: str = "") -> ChangeProposal:
+        """Cria uma proposta pelo caminho canônico: o Workbench."""
+
+        return self.workbench.propose(kind, name, content, origin="human:cli", rationale=rationale)
+
+    def dev_verify(self, proposal_id: str) -> ChangeProposal:
+        return self.workbench.validate(proposal_id)
+
+    def dev_prove(self, proposal_id: str, suite_id: str | None = None):
+        """Avalia o artefato proposto e anexa a execução como evidência.
+
+        Pack não tem prova em sandbox: a avaliação acontece depois de aplicar,
+        sobre os artefatos (`egr eval smoke workflow <id>`).
+        """
+
+        from ..evaluation.suites import smoke_suite
+
+        proposal = self.workbench.get(proposal_id)
+        if str(proposal.kind) == "pack":
+            raise ConfigError(
+                "pack não tem prova em sandbox: aplique e avalie os artefatos "
+                "(egr eval smoke workflow <id>) antes de promover"
+            )
+        suite = self.evaluation_suites.get(suite_id) if suite_id else None
+        if suite is None:
+            if not self._artifact_exists(proposal):
+                raise ConfigError(
+                    f"artefato '{proposal.name}' ainda não está no workspace: aplique a proposta "
+                    "ou informe uma suíte existente (--suite)"
+                )
+            suite = smoke_suite(self, str(proposal.kind), proposal.name)
+        run = self.evaluator.run(suite, actor=proposal.origin or "human:cli")
+        proposal.metadata["evidence_run"] = run.id
+        proposal.metadata["evidence_status"] = str(run.status)
+        if str(run.status) == "passed":
+            proposal.status = ProposalStatus.TESTED
+        else:
+            proposal.status = ProposalStatus.FAILED
+            proposal.error = "; ".join(run.reasons[:2]) or "avaliação não passou"
+        proposal.updated_at = utcnow()
+        saved = self.proposals.save(proposal)
+        self.audit.record(
+            EventType.DEV_PROPOSAL_TESTED,
+            actor=proposal.origin or "human:cli",
+            environment=saved.environment,
+            payload={"proposal": saved.id, "evidence": run.id, "status": str(run.status)},
+        )
+        return saved, run
+
+    def _artifact_exists(self, proposal: ChangeProposal) -> bool:
+        """O que já está no workspace pode ser provado; o que ainda não está, não."""
+
+        kind, name = str(proposal.kind), proposal.name
+        if kind == "tool":
+            return self.tools.has(name)
+        if kind == "agent":
+            return name in self.agents
+        if kind == "workflow":
+            return name in self.workflows
+        if kind == "policy":
+            return any(item.id == name for item in self.policy.list_policies())
+        if kind == "pack":
+            return self.packs_repository.get(name) is not None
+        return False
+
+    def dev_approve(self, proposal_id: str, actor: str = "human:cli", token: str | None = None, note: str = ""):
+        return self.workbench.approve(proposal_id, actor=actor, note=note)
+
+    def dev_reject(self, proposal_id: str, actor: str = "human:cli", note: str = ""):
+        return self.workbench.reject(proposal_id, actor=actor, note=note)
+
+    def dev_apply(self, proposal_id: str, actor: str = "human:cli") -> dict[str, Any]:
+        proposal = self.workbench.apply(proposal_id, actor=actor)
+        return {
+            "kind": str(proposal.kind),
+            "name": proposal.name,
+            "path": proposal.target,
+            "status": str(proposal.status),
+            "fingerprint": proposal.fingerprint[:16],
+            "reloaded": True,
+        }
+
+    def dev_list(self, status: str | None = None, limit: int = 20) -> list[ChangeProposal]:
+        return self.workbench.list(status=status, limit=limit)
+
+    def dev_show(self, proposal_id: str) -> ChangeProposal:
+        return self.workbench.get(proposal_id)
+
     def propose_change(
         self,
         kind: str,
@@ -956,6 +1058,7 @@ class Runtime:
             "governance": self.governance_status(),
             "channels": self.channel_status(),
             "integrations": self.integrations_status(),
+            "packs": self.packs_status(),
             "security": self.security_status(),
             "mcp": {
                 "enabled": self.settings.config.mcp.enabled,
@@ -1107,6 +1210,25 @@ class Runtime:
                     ),
                 }
             )
+
+        packs = self.packs_status()
+        add(
+            "packs",
+            True,
+            f"{packs['catálogo']['total']} pack(s) no catálogo, {packs['instalados']} instalado(s)",
+        )
+        for item in packs["pacotes"]:
+            if item["status"] == "outdated":
+                checks.append(
+                    {
+                        "check": f"pack:{item['id']}",
+                        "ok": False,
+                        "detail": (
+                            f"pack '{item['id']}' instalado em versão diferente da do catálogo "
+                            f"(reinstale para atualizar)"
+                        ),
+                    }
+                )
 
         integrations = self.integrations_status()
         enabled_connectors = [

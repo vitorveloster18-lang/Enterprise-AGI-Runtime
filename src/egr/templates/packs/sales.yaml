@@ -1,0 +1,121 @@
+id: sales
+name: Vendas
+version: 1.0.0
+vertical: Comercial
+description: >
+  Pipeline comercial: qualificação de oportunidades, política de desconto por
+  limiar e leitura do CRM por conector REST declarado.
+requires:
+  tools: [database.query, filesystem.read]
+  min_environment: development
+agents:
+  - id: sales-agent
+    name: Sales Agent
+    version: 1.0.0
+    objective: Qualificar oportunidades, estimar receita e sugerir próximos passos
+    model:
+      capability: reasoning
+      temperature: 0.3
+    memory:
+      - sales
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+        - integration.list
+      namespaces:
+        - sales
+        - default
+      max_risk: medium
+    environment: development
+workflows:
+  - id: pipeline-oportunidade
+    name: Qualificação de oportunidade
+    version: 1.0.0
+    description: lead -> qualificação -> política de desconto -> registro no CRM
+    environment: development
+    on_error: fail
+    inputs:
+      origem: formulario
+    steps:
+      - id: s1
+        agent: sales-agent
+        objective: Qualificar a oportunidade recebida e estimar o valor potencial
+        outputs:
+          oportunidade: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        policy: vendas-desconto
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s3
+        depends_on: [s2]
+        objective: Registrar o próximo passo comercial na memória do namespace sales
+        namespace: sales
+policies:
+  - id: vendas-desconto
+    name: Política de desconto comercial
+    version: 1.0.0
+    description: desconto é decisão com limite, não gentileza
+    priority: 50
+    enabled: true
+    rules:
+      - id: desconto-pequeno
+        action: sales.discount
+        condition: discount <= 10
+        decision: allow
+        reason: desconto até 10% é discricionário do vendedor
+      - id: desconto-medio
+        action: sales.discount
+        condition: discount > 10 and discount <= 25
+        decision: require_approval
+        required_role: sales_manager
+        reason: desconto acima de 10% exige gestor comercial
+      - id: desconto-grande
+        action: sales.discount
+        condition: discount > 25
+        decision: deny
+        reason: desconto acima de 25% não é aprovado por política
+integrations:
+  - id: CRM_VENDAS
+    name: CRM comercial
+    type: rest
+    description: leitura de oportunidades e clientes
+    enabled: false
+    base_url: https://crm.exemplo.com.br/api/v1
+    auth:
+      scheme: bearer
+      secret: CRM_VENDAS_TOKEN
+    allowed_hosts: [crm.exemplo.com.br]
+    allowed_methods: [GET]
+    read_only: true
+    timeout: 20
+    cost_per_call: 0.002
+evaluations:
+  - id: vendas-pipeline
+    name: Qualificação de oportunidade
+    target_kind: workflow
+    target: pipeline-oportunidade
+    cases:
+      - id: lead-quente
+        args: {origem: formulario}
+        expect_ok: true
+        max_duration_ms: 60000
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-comercial.md: |
+    # Política Comercial
+
+    | Desconto | Decisão |
+    |----------|---------|
+    | até 10% | vendedor |
+    | 10% a 25% | gestor comercial |
+    | acima de 25% | proibido por política |
+
+    - Oportunidade sem próximo passo registrado não entra no forecast.
+    - Dados de cliente vêm do CRM por conector declarado.

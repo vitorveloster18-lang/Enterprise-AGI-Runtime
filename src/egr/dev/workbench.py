@@ -31,6 +31,7 @@ NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 KIND_RISK = {
     ProposalKind.TOOL: RiskLevel.HIGH,      # executa código
     ProposalKind.POLICY: RiskLevel.HIGH,    # muda o que é permitido
+    ProposalKind.PACK: RiskLevel.HIGH,      # instala agentes, políticas e conectores
     ProposalKind.WORKFLOW: RiskLevel.MEDIUM,
     ProposalKind.AGENT: RiskLevel.MEDIUM,
 }
@@ -71,6 +72,8 @@ class Workbench:
             return f"policies/{name}.yaml"
         if kind == ProposalKind.TOOL:
             return f"tools/{name.split('.')[0]}.py"
+        if kind == ProposalKind.PACK:
+            return f"packs/{name}.yaml"
         raise ConfigError(f"tipo de proposta desconhecido: {kind}")
 
     # ---- ciclo de vida ------------------------------------------------
@@ -427,6 +430,21 @@ class Workbench:
             runtime.sync_policies()
         elif proposal.kind == ProposalKind.TOOL:
             self._reload_tools_for(proposal.environment)
+        elif proposal.kind == ProposalKind.PACK:
+            self._apply_pack(proposal)
+
+    def _apply_pack(self, proposal: ChangeProposal) -> None:
+        """Pack aprovado: materializa os artefatos e registra a instalação."""
+
+        from ..packs.catalog import load_pack_file
+
+        target = self._resolve_target(proposal)
+        pack = load_pack_file(target, origin="workspace")
+        runtime = self.runtime
+        packs = getattr(runtime, "packs", None)
+        if packs is None:
+            raise ConfigError("serviço de packs indisponível neste Runtime")
+        packs.materialize(pack, actor=proposal.decided_by or "human:cli", proposal=proposal.id)
 
     def _reload_tools_for(self, environment: Environment) -> None:
         runtime = self.runtime

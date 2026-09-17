@@ -159,6 +159,8 @@ def validate_proposal(proposal: ChangeProposal, runtime: Any) -> list[Validation
         checks.extend(_validate_workflow(proposal, runtime))
     elif proposal.kind == ProposalKind.POLICY:
         checks.extend(_validate_policy(proposal, runtime))
+    elif proposal.kind == ProposalKind.PACK:
+        checks.extend(_validate_pack(proposal, runtime))
     else:
         checks.append(_check("tipo", False, detail=f"tipo de proposta desconhecido: {proposal.kind}"))
 
@@ -174,6 +176,34 @@ def validate_proposal(proposal: ChangeProposal, runtime: Any) -> list[Validation
                 detail="o conteúdo mudou depois de registrado: a proposta precisa ser recriada",
             )
         )
+    return checks
+
+
+def _validate_pack(proposal: ChangeProposal, runtime: Any) -> list[ValidationCheck]:
+    """Pack: o manifesto precisa ser válido e o workspace precisa poder recebê-lo."""
+
+    checks: list[ValidationCheck] = []
+    parsed, error = _parse_yaml(proposal)
+    if error or parsed is None:
+        return [error] if error else [_check("yaml", False, detail="manifesto do pack ilegível")]
+
+    from ..domain.pack import Pack
+
+    try:
+        pack = Pack.model_validate(parsed)
+    except Exception as exc:
+        return [_check("manifesto", False, detail=f"pack inválido: {exc}")]
+
+    checks.append(_check("manifesto", pack.total > 0, detail="pack sem artefatos"))
+    checks.append(_check("identidade", pack.id == proposal.name, detail="id do pack difere do nome da proposta"))
+
+    service = getattr(runtime, "packs", None)
+    if service is not None:
+        for item in service.check(pack):
+            nivel = item.get("nível", "error")
+            if nivel == "info":
+                continue
+            checks.append(_check(item["nome"], bool(item["ok"]), level=nivel, detail=item["detalhe"]))
     return checks
 
 

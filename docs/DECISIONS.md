@@ -737,3 +737,53 @@ governado.
 **Consequências:** reentrega do fornecedor é inofensiva e a trilha mostra o que
 chegou mesmo quando nada foi feito; o custo é que “chegou” não implica “fez” —
 de propósito.
+
+---
+
+## ADR-043 · Pack entra por proposta, nunca por instalação direta
+
+**Status:** aceita (Fase 12).
+
+**Contexto:** um “instalador” que escreve agentes, políticas e conectores de uma
+vez é o atalho mais conveniente que existe — e o mais perigoso: mudança grande,
+de uma vez, sem diff revisado e sem responsável.
+
+**Decisão:** pack é uma `ChangeProposal` de tipo `pack` (risco alto), validada
+pelas verificações da Fase 7 (manifesto, requisitos, colisões) e aplicada pelo
+único escritor do workspace depois de aprovação humana. O manifesto aplicado é o
+artefato auditado; os arquivos são consequência.
+
+**Consequências:** começar um vertical leva três comandos em vez de um; em troca,
+toda política que entrou tem autor, proposta e impressão digital.
+
+---
+
+## ADR-044 · Catálogo é código; o workspace tem a palavra final
+
+**Status:** aceita (Fase 12).
+
+**Contexto:** catálogo remoto (registry) daria atualização automática de política
+— confiança terceirizada em transporte.
+
+**Decisão:** os packs embutidos vivem no pacote Python do EGR, versionados com o
+Runtime. Um arquivo `packs/<id>.yaml` no workspace **sobrepõe** o embutido de
+mesmo id. Nada é baixado em runtime.
+
+**Consequências:** atualizar o catálogo é atualizar o EGR (ou versionar o pack do
+time); o custo é não ter “marketplace de um clique” — de propósito.
+
+---
+
+## ADR-045 · Remoção preserva o que foi editado
+
+**Status:** aceita (Fase 12).
+
+**Contexto:** remover um pack apagando a lista de arquivos que ele escreveu
+também apaga o ajuste que alguém fez naquele arquivo depois — silenciosamente.
+
+**Decisão:** a instalação guarda a impressão digital de **cada arquivo** escrito;
+a remoção só apaga o arquivo cujo conteúdo ainda é o que o pack escreveu, e
+lista o que foi mantido por ter mudado.
+
+**Consequências:** remover é reversível na prática e auditável; o custo é que
+“desinstalar” pode deixar sobras — e elas são ditas em voz alta.

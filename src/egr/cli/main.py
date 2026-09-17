@@ -19,6 +19,7 @@ from .commands import (
     mcp,
     memory,
     models,
+    pack,
     policies,
     proposals,
     releases,
@@ -63,6 +64,8 @@ app.add_typer(evaluation.app, name="eval")
 app.add_typer(gateway.app, name="gateway")
 # integrações (Fase 11): REST/GraphQL/SQL/webhook com política e trilha
 app.add_typer(integration.app, name="integration")
+# pacotes verticais (Fase 12): catálogo instalado por proposta
+app.add_typer(pack.app, name="pack")
 app.add_typer(mcp.app, name="mcp")
 app.add_typer(proposals.app, name="proposal")
 # governança de produção (Fase 9): promoção com versão, evidência e volta

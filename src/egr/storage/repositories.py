@@ -19,6 +19,7 @@ from ..domain.enterprise import Enterprise
 from ..domain.evaluation import EvaluationRun, EvaluationSuite
 from ..domain.integration import InboundEvent, Integration, IntegrationCall
 from ..domain.memory import MemoryRecord
+from ..domain.pack import InstalledPack
 from ..domain.policy import Policy
 from ..domain.proposal import ChangeProposal
 from ..domain.release import ArtifactVersion, Release
@@ -1346,3 +1347,46 @@ class IntegrationEventRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM integration_events") or 0)
+
+
+# ---------------------------------------------------------------------------
+# Fase 12 — pacotes verticais instalados
+# ---------------------------------------------------------------------------
+class PackRepository:
+    """O catálogo é do pacote; o que está instalado é do workspace."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, pack: InstalledPack) -> InstalledPack:
+        self.db.execute(
+            "INSERT INTO packs (id, version, enabled, data, installed_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+            "version = excluded.version, enabled = excluded.enabled, "
+            "data = excluded.data, installed_at = excluded.installed_at",
+            (
+                pack.id,
+                pack.version,
+                int(pack.status == "installed"),
+                _dump(pack),
+                iso(pack.installed_at or utcnow()),
+            ),
+        )
+        self.db.commit()
+        return pack
+
+    def get(self, pack_id: str) -> InstalledPack | None:
+        row = self.db.query_one("SELECT * FROM packs WHERE id = ?", (pack_id,))
+        return _load(row, InstalledPack) if row else None
+
+    def list(self, limit: int = 100) -> list[InstalledPack]:
+        rows = self.db.query("SELECT * FROM packs ORDER BY installed_at DESC LIMIT ?", (limit,))
+        return [_load(row, InstalledPack) for row in rows]
+
+    def delete(self, pack_id: str) -> bool:
+        self.db.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
+        self.db.commit()
+        return True
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM packs") or 0)

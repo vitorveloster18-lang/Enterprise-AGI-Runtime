@@ -1,0 +1,117 @@
+id: hr
+name: Recursos Humanos
+version: 1.0.0
+vertical: Pessoas
+description: >
+  Admissão e ciclo de vida do colaborador, com a política mais restritiva do
+  catálogo: dado pessoal sensível não cruza a fronteira — nunca, por ninguém.
+requires:
+  tools: [database.query, filesystem.read]
+  min_environment: development
+agents:
+  - id: hr-agent
+    name: HR Agent
+    version: 1.0.0
+    objective: Conduzir admissão, férias e movimentações sem expor dado sensível
+    model:
+      capability: reasoning
+      temperature: 0.1
+    memory:
+      - hr
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+      namespaces:
+        - hr
+        - default
+      max_risk: low
+    environment: development
+workflows:
+  - id: admissao-colaborador
+    name: Admissão de colaborador
+    version: 1.0.0
+    description: proposta -> documentos -> política de dado sensível -> registro
+    environment: development
+    on_error: fail
+    inputs:
+      etapa: documentos
+    steps:
+      - id: s1
+        agent: hr-agent
+        objective: Conferir a lista de documentos de admissão e o que falta
+        outputs:
+          checklist: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        policy: rh-dado-sensivel
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s3
+        depends_on: [s2]
+        objective: Registrar o checklist de admissão na memória do namespace hr
+        namespace: hr
+policies:
+  - id: rh-dado-sensivel
+    name: Política de dado pessoal sensível
+    version: 1.0.0
+    description: CPF, saúde e dados biométricos não saem daqui
+    priority: 90
+    enabled: true
+    rules:
+      - id: rh-exportar-sensivel
+        action: hr.export
+        condition: contains(lower(target), 'cpf') or contains(lower(target), 'saude')
+        decision: deny
+        reason: exportar CPF ou dado de saúde é proibido por política
+      - id: rh-modelo-externo
+        action: model.call
+        condition: external_ai == True
+        decision: deny
+        reason: dado de RH não vai para modelo externo
+      - id: rh-leitura-interna
+        action: hr.read
+        decision: allow
+        reason: leitura interna de RH é permitida ao papel autorizado
+integrations:
+  - id: RH
+    name: Sistema de RH
+    type: rest
+    description: leitura de quadro, férias e movimentações
+    enabled: false
+    base_url: https://rh.exemplo.com.br/api/v1
+    auth:
+      scheme: bearer
+      secret: RH_TOKEN
+    allowed_hosts: [rh.exemplo.com.br]
+    allowed_methods: [GET]
+    read_only: true
+    timeout: 20
+    cost_per_call: 0.002
+evaluations:
+  - id: rh-admissao
+    name: Admissão de colaborador
+    target_kind: workflow
+    target: admissao-colaborador
+    cases:
+      - id: documentos-completos
+        args: {etapa: documentos}
+        expect_ok: true
+        max_duration_ms: 60000
+      - id: exportar-cpf
+        args: {etapa: exportar}
+        expect_ok: false
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-rh.md: |
+    # Política de Dados de RH
+
+    - CPF, saúde e biometria são dados sensíveis: **não saem do Runtime**.
+    - Modelo externo não recebe conteúdo de RH (política nega, não avisa).
+    - Exportação para sistema de terceiros exige base legal registrada.
+    - Acesso é por papel e fica na trilha.

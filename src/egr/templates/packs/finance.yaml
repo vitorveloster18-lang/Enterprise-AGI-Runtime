@@ -1,0 +1,137 @@
+id: finance
+name: Financeiro
+version: 1.0.0
+vertical: Finanças
+description: >
+  Tesouraria e fluxo de caixa: agente de caixa, fechamento diário, política de
+  pagamento por limiar e leitura de extratos por conector declarado.
+requires:
+  tools: [database.query, filesystem.read]
+  connectors: []
+  min_environment: development
+agents:
+  - id: cashflow-agent
+    name: Cashflow Agent
+    version: 1.0.0
+    objective: Projetar fluxo de caixa, conciliar extratos e apontar riscos de liquidez
+    model:
+      capability: reasoning
+      temperature: 0.1
+    memory:
+      - finance
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+        - integration.list
+      namespaces:
+        - finance
+        - default
+      max_risk: medium
+    environment: development
+workflows:
+  - id: fechamento-caixa
+    name: Fechamento diário de caixa
+    version: 1.0.0
+    description: extrato -> conferência -> política -> registro do fechamento
+    environment: development
+    on_error: fail
+    parallel: false
+    inputs:
+      data: hoje
+    steps:
+      - id: s1
+        agent: cashflow-agent
+        objective: Ler o extrato do dia e classificar as entradas e saídas
+        outputs:
+          extrato: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        agent: cashflow-agent
+        objective: Conferir o saldo projetado contra o histórico e apontar divergências
+        max_attempts: 2
+      - id: s3
+        depends_on: [s2]
+        policy: tesouraria-pagamento
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s4
+        depends_on: [s3]
+        objective: Registrar o fechamento do dia na memória do namespace finance
+        namespace: finance
+policies:
+  - id: tesouraria-pagamento
+    name: Política de pagamentos da tesouraria
+    version: 1.0.0
+    description: limiares de aprovação para saída de caixa
+    priority: 60
+    enabled: true
+    rules:
+      - id: pagamento-automatico
+        action: payment.create
+        condition: amount < 5000
+        decision: allow
+        reason: pagamentos abaixo de 5.000 são automáticos
+      - id: pagamento-aprovacao
+        action: payment.create
+        condition: amount >= 5000
+        decision: require_approval
+        required_role: finance_manager
+        reason: pagamentos a partir de 5.000 exigem gestor financeiro
+      - id: pagamento-producao
+        action: payment.create
+        condition: environment == 'production'
+        decision: require_approval
+        required_role: finance_manager
+        reason: em produção, todo pagamento passa por humano
+integrations:
+  - id: BANCO
+    name: Extratos bancários (Open Finance)
+    type: rest
+    description: leitura de extratos e saldos
+    enabled: false
+    base_url: https://api.banco.exemplo.com.br/v1
+    auth:
+      scheme: bearer
+      secret: vault:BANCO_TOKEN
+    allowed_hosts: [api.banco.exemplo.com.br]
+    allowed_methods: [GET]
+    read_only: true
+    timeout: 20
+    cost_per_call: 0.004
+evaluations:
+  - id: finance-fechamento
+    name: Fechamento de caixa
+    target_kind: workflow
+    target: fechamento-caixa
+    cases:
+      - id: dia-util
+        args: {data: hoje}
+        expect_ok: true
+        max_duration_ms: 60000
+      - id: sem-extrato
+        args: {data: feriado}
+        expect_ok: false
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-caixa.md: |
+    # Política de Caixa
+
+    ## Limiares
+
+    | Faixa | Aprovação |
+    |-------|-----------|
+    | < R$ 5.000,00 | Automática |
+    | >= R$ 5.000,00 | Gestor financeiro |
+    | >= R$ 50.000,00 | Diretoria |
+
+    ## Regras
+
+    - Todo pagamento precisa de conta e centro de custo.
+    - Projeção de caixa é revisada diariamente.
+    - Extrato bancário é lido por conector declarado, nunca por senha compartilhada.
