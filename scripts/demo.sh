@@ -244,7 +244,7 @@ if [ -f "$WORKSPACE/agents/cashflow-agent.yaml" ]; then
   "$EGR_BIN" pack status || true
 fi
 
-step "22/24 · Lacuna 6b — coordenação negociada e gatilhos de banco"
+step "22/25 · Lacuna 6b — coordenação negociada e gatilhos de banco"
 "$EGR_BIN" task negotiate "conciliar lançamentos do dia" || true
 "$EGR_BIN" db trigger-add "task falhou" --on tasks --event update \
   --when "NEW.status = 'failed'" --emit db.task_failed || true
@@ -257,7 +257,18 @@ step "22/24 · Lacuna 6b — coordenação negociada e gatilhos de banco"
 "$EGR_BIN" db drain || true
 "$EGR_BIN" db events || true
 
-step "23/24 · Lacuna 8b — laboratório (qualidade e carga)"
+step "23/25 · Lacuna 5b — memória multimodal e limpeza de PII"
+"$EGR_BIN" memory scrub "cliente joao@example.com cpf 123.456.789-09 fechou contrato" || true
+"$EGR_BIN" memory write "contato do cliente joao@example.com cpf 123.456.789-09" \
+  --kind operational || true
+printf '%b' '\x89PNG\r\n\x1a\n' > "$WORKSPACE/print-demo.png"
+printf 'conteudo do print de teste\n' >> "$WORKSPACE/print-demo.png"
+"$EGR_BIN" memory add-media "$WORKSPACE/print-demo.png" \
+  --caption "print do painel de vendas com erro 500" || true
+"$EGR_BIN" memory media || true
+"$EGR_BIN" memory search "erro no painel de vendas" -l 3 || true
+
+step "24/25 · Lacuna 8b — laboratório (qualidade e carga)"
 SUITE=$("$EGR_BIN" eval list --json 2>/dev/null | sed -n 's/.*"id": "\([a-z0-9._-]*\)".*/\1/p' | head -1)
 if [ -n "$SUITE" ]; then
   "$EGR_BIN" eval judge "$SUITE" --method similaridade || true
@@ -268,7 +279,7 @@ else
   echo "nenhuma suíte registrada ainda"
 fi
 
-step "24/24 · auditoria e memória"
+step "25/25 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

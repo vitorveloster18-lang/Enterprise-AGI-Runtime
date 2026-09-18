@@ -16,6 +16,7 @@ sai do acervo por uma ação explícita (e auditada).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ..core.config import MemoryConfig
@@ -25,8 +26,12 @@ from ..domain.enums import EventType, MemoryKind
 from ..domain.memory import MemoryRecord
 from ..storage.repositories import MemoryRepository
 from . import embeddings
+from .media import MediaStore, describe
 from .retrieval import fuse, rank_by_similarity
 from .salience import classify, infer_importance, reinforce, salience
+from .scrubbing import scan as scan_pii
+from .scrubbing import scrub as scrub_pii
+from .scrubbing import summarize as summarize_pii
 
 
 class MemoryService:
@@ -36,11 +41,14 @@ class MemoryService:
         audit=None,
         default_namespace: str = "default",
         config: MemoryConfig | None = None,
+        workspace: Path | None = None,
     ):
         self.repository = repository
         self.audit = audit
         self.default_namespace = default_namespace
         self.config = config or MemoryConfig()
+        #: lacuna 5b: o binário fica em artifacts/media, fora do banco
+        self.media = MediaStore(workspace or Path.cwd(), config=self.config)
 
     # ---- write -------------------------------------------------------
     def write(
@@ -59,17 +67,18 @@ class MemoryService:
         importance: float | None = None,
     ) -> MemoryRecord:
         resolved_kind = MemoryKind(kind) if isinstance(kind, str) else kind
+        content, summary_given, removed = self._scrub(content, summary)
         record = MemoryRecord(
             id=new_id("memory"),
             namespace=namespace or self.default_namespace,
             kind=resolved_kind,
             content=content,
-            summary=summary or content[:280],
+            summary=summary_given or content[:280],
             tags=tags or [],
             source=source,
             task_id=task_id,
             agent_id=agent_id,
-            metadata=metadata or {},
+            metadata=self._metadata_with_pii(metadata, removed),
             created_at=utcnow(),
             importance=(
                 importance
@@ -93,9 +102,129 @@ class MemoryService:
                     "summary": record.summary,
                     "chars": len(content),
                     "importance": record.importance,
+                    "pii": summarize_pii(removed) or None,
+                },
+            )
+        if removed and self.audit:
+            self.audit.record(
+                EventType.MEMORY_PII_SCRUBBED,
+                actor=agent_id or source,
+                environment=environment or "development",
+                payload={
+                    "memory_id": record.id,
+                    "tipos": sorted(removed),
+                    "ocorrências": removed,
                 },
             )
         return record
+
+    # ---- lacuna 5b: PII ----------------------------------------------
+    def _scrub(self, content: str, summary: str = "") -> tuple[str, str, dict[str, int]]:
+        """Limpa antes de persistir: o dado pessoal não chega ao banco.
+
+        Devolve (conteúdo limpo, resumo limpo, {tipo: ocorrências}). O que saiu
+        é contado por tipo — nunca o valor.
+        """
+
+        if not self.config.scrub_pii:
+            return content, summary, {}
+        allowed = tuple(self.config.pii_allow or ())
+        cleaned, removed = scrub_pii(content, allowed=allowed)
+        cleaned_summary, removed_summary = scrub_pii(summary, allowed=allowed)
+        for name, count in removed_summary.items():
+            removed[name] = removed.get(name, 0) + count
+        return cleaned, cleaned_summary, removed
+
+    @staticmethod
+    def _metadata_with_pii(metadata: dict | None, removed: dict[str, int]) -> dict:
+        data = dict(metadata or {})
+        if removed:
+            data["pii_removido"] = dict(sorted(removed.items()))
+        return data
+
+    def scrub(self, text: str) -> tuple[str, dict[str, int]]:
+        """Limpeza avulsa (CLI/API): o que sairia de um texto, sem gravar nada."""
+
+        return scrub_pii(text, allowed=tuple(self.config.pii_allow or ()))
+
+    def scan(self, text: str) -> dict[str, int]:
+        """Só o diagnóstico: quantos e de quais tipos (sem devolver valor)."""
+
+        return scan_pii(text, allowed=tuple(self.config.pii_allow or ()))
+
+    # ---- lacuna 5b: multimodal ---------------------------------------
+    def remember_media(
+        self,
+        source: bytes | str | Path,
+        *,
+        caption: str = "",
+        filename: str = "",
+        namespace: str | None = None,
+        kind: MemoryKind | str = MemoryKind.KNOWLEDGE,
+        tags: list[str] | None = None,
+        actor: str = "cli",
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        environment: str | None = None,
+    ) -> MemoryRecord:
+        """Guarda a mídia e memoriza o **lado textual** dela.
+
+        O binário vai para `artifacts/media/`; o que fica buscável é a legenda
+        (ou transcrição) declarada por quem escreveu. Sem legenda, o registro
+        existe e é recuperável por filtro, mas diz `[sem legenda]` — o Runtime
+        não finge ter entendido a imagem.
+        """
+
+        payload: bytes | str
+        if isinstance(source, Path):
+            payload = source.read_bytes()
+            filename = filename or source.name
+        else:
+            payload = source
+
+        asset = self.media.store(
+            payload,
+            filename=filename,
+            caption=caption,
+            namespace=namespace or self.default_namespace,
+            actor=actor,
+        )
+        text = asset.caption or f"[{asset.modality} {asset.filename} sem legenda]"
+        record = self.write(
+            text,
+            kind=kind,
+            namespace=namespace,
+            tags=[*(tags or []), asset.modality],
+            source="media",
+            task_id=task_id,
+            agent_id=agent_id,
+            environment=environment,
+        )
+        record.modality = asset.modality
+        record.asset = asset
+        record.metadata["mídia"] = asset.summary()
+        self.repository.save(record)
+        if self.audit:
+            self.audit.record(
+                EventType.MEMORY_MEDIA_WRITTEN,
+                actor=actor,
+                environment=environment or "development",
+                payload={
+                    "memory_id": record.id,
+                    "mídia": asset.id,
+                    "modalidade": asset.modality,
+                    "tipo": asset.mime,
+                    "bytes": asset.size,
+                    "impressão": asset.fingerprint[:16],
+                    "com_legenda": bool(asset.caption),
+                },
+            )
+        return record
+
+    def media_status(self) -> dict[str, Any]:
+        state = self.media.status()
+        state["registros"] = len([item for item in self.repository.all_records() if item.asset])
+        return state
 
     # knowledge / episodic / semantic shortcuts
     def remember_knowledge(self, content: str, namespace: str = "default", **kwargs) -> MemoryRecord:
@@ -207,10 +336,12 @@ class MemoryService:
         used = 0
         for record in records:
             salience_value = salience(record, half_life_days=self.config.half_life_days)
-            line = (
-                f"- [{record.kind}/{record.namespace} · {classify(salience_value)}] "
-                f"{record.summary or record.content[:200]}"
+            body = (
+                describe(record.asset)
+                if record.asset is not None
+                else record.summary or record.content[:200]
             )
+            line = f"- [{record.kind}/{record.namespace} · {classify(salience_value)}] {body}"
             if used + len(line) > budget:
                 break
             lines.append(line)
@@ -383,12 +514,29 @@ class MemoryService:
             "model": embeddings.MODEL_ID,
             "dimension": embeddings.DIMENSION,
             "retrieval": self.config.retrieval,
+            # lacuna 5b: multimodal e limpeza de PII
+            "por_modalidade": self._modality_stats(records),
+            "mídia": self.media_status(),
+            "limpeza_pii": {
+                "ativa": self.config.scrub_pii,
+                "tipos_liberados": list(self.config.pii_allow or []),
+                "registros_com_pii_removido": len(
+                    [item for item in records if (item.metadata or {}).get("pii_removido")]
+                ),
+            },
             "avg_salience": round(sum(saliences) / len(saliences), 4) if saliences else 0.0,
             "distribution": {
                 state: len([value for value in saliences if classify(value) == state])
                 for state in ("viva", "estável", "esfriando", "arquivável")
             },
         }
+
+    @staticmethod
+    def _modality_stats(records: list[MemoryRecord]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for record in records:
+            counts[record.modality] = counts.get(record.modality, 0) + 1
+        return dict(sorted(counts.items()))
 
     # ---- internals ---------------------------------------------------
     def _embed(self, record: MemoryRecord) -> None:

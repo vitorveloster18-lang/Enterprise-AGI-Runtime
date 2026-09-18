@@ -96,6 +96,76 @@ def write(
         importance=importance,
     )
     success(f"memória registrada: {record.id} (importância {record.importance})")
+    removed = record.metadata.get("pii_removido") or {}
+    if removed:
+        warning(
+            "dado pessoal removido na escrita: "
+            + ", ".join(f"{count} {name}" for name, count in sorted(removed.items()))
+        )
+
+
+@app.command(name="scrub")
+def scrub(
+    text: str = typer.Argument(..., help="Texto a conferir (nada é gravado)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Mostra o que a limpeza de PII removeria — e nunca o valor removido."""
+
+    runtime = get_runtime(workspace)
+    cleaned, removed = runtime.memory.scrub(text)
+
+    if not removed:
+        success("nada a remover")
+        info(cleaned)
+        return
+    warning("removido: " + ", ".join(f"{count} {name}" for name, count in sorted(removed.items())))
+    info(cleaned)
+
+
+@app.command(name="add-media")
+def add_media(
+    file: Path = typer.Argument(..., help="Arquivo (imagem, áudio, PDF ou texto)"),
+    caption: str = typer.Option("", "--caption", "-c", help="Legenda/transcrição — é o que fica buscável"),
+    namespace: str = typer.Option("default", "--namespace", "-n"),
+    kind: str = typer.Option("knowledge", "--kind", "-k"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Memoriza uma mídia: o binário vai para artifacts/media, o texto fica buscável."""
+
+    from ...core.errors import ConfigError
+
+    if not file.exists():
+        error(f"arquivo não encontrado: {file}")
+        raise typer.Exit(code=1)
+    runtime = get_runtime(workspace)
+    try:
+        record = runtime.memory.remember_media(
+            file, caption=caption, filename=file.name, namespace=namespace, kind=kind, actor="human:cli"
+        )
+    except ConfigError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    success(f"mídia memorizada: {record.id} ({record.asset.modality}, {record.asset.size} bytes)")
+    if not caption:
+        warning("sem legenda: o registro existe, mas não é recuperável por texto")
+
+
+@app.command(name="media")
+def media(workspace: Path = typer.Option(None, "--workspace", "-w")):
+    """Estado da memória multimodal: teto, tipos aceitos e uso de disco."""
+
+    runtime = get_runtime(workspace)
+    state = runtime.memory.media_status()
+    kv(
+        "Mídia",
+        {
+            "ativa": "sim" if state["ativa"] else "não",
+            "teto": f"{state['teto_bytes']} bytes",
+            "registros": state["registros"],
+            "disco": f"{state['disco_bytes']} bytes",
+        },
+    )
+    info("tipos aceitos: " + ", ".join(state["tipos"]))
 
 
 @app.command(name="show")
@@ -131,6 +201,12 @@ def show(
             "vetor": record.embedding_model or "ausente",
             "tags": ", ".join(record.tags) or "-",
             "task": record.task_id or "-",
+            "modalidade": record.modality,
+            "mídia": describe(record.asset) if record.asset else "-",
+            "pii removido": ", ".join(
+                f"{count} {name}" for name, count in (record.metadata.get("pii_removido") or {}).items()
+            )
+            or "-",
         },
     )
     info(record.content[:600])
@@ -289,6 +365,12 @@ def stats(
         ["estado", "registros"],
         [[state, total] for state, total in data["distribution"].items()],
     )
+
+
+def describe(asset) -> str:
+    from ...memory.media import describe as render
+
+    return render(asset)
 
 
 def _salience_of(runtime, record) -> float:

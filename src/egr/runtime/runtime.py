@@ -176,6 +176,7 @@ class Runtime:
             MemoryRepository(self.db),
             audit=self.audit,
             config=settings.config.memory,
+            workspace=settings.workspace,
         )
 
         # ---- segurança (Fase 4) -------------------------------------

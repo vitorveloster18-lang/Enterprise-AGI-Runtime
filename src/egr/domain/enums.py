@@ -65,6 +65,9 @@ class EventType(BaseStrEnum):
     MODEL_BUDGET_BLOCKED = "model.budget_blocked"
     # memory / artifacts
     MEMORY_WRITTEN = "memory.written"
+    # lacuna 5b: memória multimodal e limpeza de PII na escrita
+    MEMORY_MEDIA_WRITTEN = "memory.media_written"
+    MEMORY_PII_SCRUBBED = "memory.pii_scrubbed"
     MEMORY_RECALLED = "memory.recalled"
     ARTIFACT_CREATED = "artifact.created"
     # data boundary
@@ -194,6 +197,15 @@ class AttachmentStatus(BaseStrEnum):
     RECEIVED = "received"    # descrito pelo canal, ainda não guardado
     STORED = "stored"        # gravado no inbox do workspace, com checksum
     REJECTED = "rejected"    # tipo, tamanho ou origem fora do permitido
+
+
+class MemoryModality(BaseStrEnum):
+    """Lacuna 5b: o suporte do registro (o buscável é sempre o lado textual)."""
+
+    TEXT = "texto"
+    IMAGE = "imagem"
+    AUDIO = "áudio"
+    DOCUMENT = "documento"
 
 
 class MemoryKind(BaseStrEnum):

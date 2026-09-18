@@ -53,6 +53,22 @@ class WorkflowRunRequest(BaseModel):
     created_by: str = "api"
 
 
+class MemoryScrubRequest(BaseModel):
+    """Lacuna 5b: conferir a limpeza de PII sem gravar nada."""
+
+    text: str = ""
+
+
+class MemoryMediaRequest(BaseModel):
+    """Lacuna 5b: mídia em base64 + a legenda que fica buscável."""
+
+    content: str = ""          # base64 do arquivo
+    filename: str = ""
+    caption: str = ""
+    namespace: str = "default"
+    kind: str = "knowledge"
+
+
 class MemoryWrite(BaseModel):
     content: str
     kind: str = "knowledge"
@@ -1319,6 +1335,51 @@ def create_app(runtime: Runtime) -> FastAPI:
             importance=payload.importance,
         )
         return record.model_dump(mode="json")
+
+    @app.post("/v1/memory/scrub", tags=["governance"])
+    def memory_scrub(payload: MemoryScrubRequest) -> dict[str, Any]:
+        """O que a limpeza removeria: tipos e contagem, nunca o valor."""
+
+        cleaned, removed = runtime.memory.scrub(payload.text)
+        return {"texto": cleaned, "removido": removed, "total": sum(removed.values())}
+
+    @app.post("/v1/memory/media", tags=["governance"])
+    def memory_media(request: MemoryMediaRequest) -> dict[str, Any]:
+        """Memoriza mídia: binário em artifacts/media, texto (legenda) buscável.
+
+        O arquivo vem em base64 — a API é só JSON, sem dependência de multipart.
+        """
+
+        import base64
+
+        from ..domain.enums import MemoryKind
+
+        try:
+            resolved = MemoryKind(request.kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"kind inválido: {request.kind}") from exc
+        try:
+            payload = base64.b64decode(request.content, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail="conteúdo não é base64 válido") from exc
+        try:
+            record = runtime.memory.remember_media(
+                payload,
+                caption=request.caption,
+                filename=request.filename,
+                namespace=request.namespace,
+                kind=resolved,
+                actor="human:api",
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {**record.model_dump(mode="json"), "mídia": record.asset.summary() if record.asset else None}
+
+    @app.get("/v1/memory/media", tags=["governance"])
+    def memory_media_status() -> dict[str, Any]:
+        """Estado da memória multimodal."""
+
+        return runtime.memory.media_status()
 
     @app.get("/v1/memory/stats", tags=["governance"])
     def memory_stats() -> dict[str, Any]:

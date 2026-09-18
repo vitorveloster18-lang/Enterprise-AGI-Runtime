@@ -8,7 +8,7 @@ auditoria e supervisão humana.
 
 O modelo é substituível. O Runtime é permanente.
 
-**Status atual:** `v0.1.0` · **Fases 0 a 12 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control, Enterprise Integrations e Vertical Packs) · **Fase 13 em andamento: fechamento das lacunas** (10b entregue) · Python-first.
+**Status atual:** `v0.1.0` · **Fases 0 a 12 implementadas** (V1: Foundation → Orchestration; V2: Development Environment, Evaluation, Production Governance, Remote Control, Enterprise Integrations e Vertical Packs) · **Fase 13 concluída: fechamento das lacunas** (10b, 12b, 8b, 9b, 6b e 5b entregues) · Python-first.
 
 ---
 
@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 568 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, coordenação negociada e gatilhos de banco, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
+| Testes | `tests/` | 594 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, multimodal e limpeza de PII, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, coordenação negociada e gatilhos de banco, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 
@@ -482,6 +482,21 @@ da fila) e a estratégia escolhe; quem não pode aparece com o motivo do veto.
 Handoff tem motivo, limite e permissão — repassar sem parar é fugir do problema.
 O gatilho de banco é um `CREATE TRIGGER` real: nada de *polling*, e o `when`
 aceita só colunas da lista branca (SQL livre é recusado antes de chegar no banco).
+
+**Memória multimodal e limpeza de PII** (lacuna 5b): o que não devia estar na
+memória não chega a entrar.
+
+```bash
+egr memory scrub "cpf 123.456.789-09 e fone (51) 98888-7777"   # só confere
+egr memory add-media print.png --caption "erro 500 no painel"
+egr memory media                      # teto, tipos aceitos, uso de disco
+```
+
+CPF e CNPJ são validados pelos dígitos verificadores, cartão por Luhn; o que sai
+vira `[cpf removido]` e o registro guarda **só o tipo e a contagem** — a trilha
+nunca revela o valor. A mídia vai para `artifacts/media/` (fora do banco, tipo
+conferido pelos bytes, não pela extensão) e o que fica buscável é a legenda que
+alguém declarou: sem visão nem transcrição local, o Runtime não inventa legenda.
 
 Duas lacunas da Fase 12 também fechadas aqui: o **worker da fila**
 (`egr integration worker`) é o processo explícito que drena o que já venceu —

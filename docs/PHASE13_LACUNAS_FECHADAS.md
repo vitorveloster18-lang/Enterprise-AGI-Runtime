@@ -331,3 +331,65 @@ conforme o evento, literais, comparações e operadores lógicos. `; DROP TABLE 
 Lance por modelo (o agente "se vendendo" com linguagem), leilão com
 compromisso de execução e gatilho de banco em outros SGBDs (o mecanismo é
 SQLite; para Postgres a mesma ideia vira `NOTIFY`/logica externa).
+
+---
+
+## 6. Lacuna 5b — Memória multimodal e limpeza de PII na escrita
+
+A Fase 5 lembra, reforça e consolida texto. Faltavam as duas perguntas que só
+aparecem quando a memória já está cheia: **o que não devia estar aqui** e **onde
+guardar o que não é texto**.
+
+### 6.1 Limpeza de PII na escrita
+
+A limpeza acontece **antes de persistir**: o dado pessoal não chega ao banco, ao
+vetor nem ao contexto do modelo.
+
+```bash
+egr memory scrub "cpf 123.456.789-09 e fone (51) 98888-7777"   # só confere
+egr memory write "..."                                          # avisa o que saiu
+```
+
+| Reconhecido | Validação |
+|---|---|
+| CPF | dígitos verificadores |
+| CNPJ | dígitos verificadores |
+| cartão de crédito | Luhn (13–19 dígitos) |
+| e-mail | formato |
+| telefone | BR e internacional simples |
+| CEP, RG | formato |
+
+O que sai é substituído por marcador (`[cpf removido]`) para que a lacuna seja
+visível a quem lê. O registro guarda `{tipo: contagem}` em
+`metadata.pii_removido` e a trilha recebe `memory.pii_scrubbed` — **só o tipo,
+nunca o valor**: ninguém reconstrói o CPF lendo a auditoria.
+
+Configurável: `memory.scrub_pii` (padrão `true`) desliga, e `memory.pii_allow`
+libera um tipo (ex.: `["e-mail"]` para e-mail corporativo).
+
+### 6.2 Memória multimodal
+
+```bash
+egr memory add-media print.png --caption "erro 500 no painel de vendas"
+egr memory media                     # teto, tipos aceitos, uso de disco
+```
+
+- o binário vai para `artifacts/media/<ano>/<impressão>.<ext>` — **fora do
+  banco**, com SHA-256;
+- o tipo é conferido pelos **bytes mágicos**: renomear `exe` para `png` não
+  engana (`tipo não reconhecido pelos bytes`);
+- teto por arquivo (`memory.max_media_bytes`, padrão 5 MiB) e lista branca de
+  MIME (`memory.media_mimes`);
+- o que fica **buscável** é o lado textual: legenda ou transcrição declarada por
+  quem escreveu. Sem legenda, o registro existe e é recuperável por filtro, mas
+  diz `[sem legenda]`;
+- o binário nunca é vetorizado e nunca entra no contexto: o agente recebe a
+  referência (`[imagem · erro.png · 208 B · image/png]`) e o texto.
+
+### 6.3 O que continua fora
+
+Visão computacional e transcrição de áudio locais: quem descreve o conteúdo é
+quem escreveu, e essa descrição é declarada — o Runtime não inventa legenda nem
+finge ter entendido a imagem. Também fora: busca por similaridade de imagem
+(embedding visual) e deduplicação de mídia por conteúdo além da impressão
+digital exata.

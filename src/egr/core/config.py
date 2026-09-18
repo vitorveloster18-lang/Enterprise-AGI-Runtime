@@ -335,6 +335,29 @@ class MemoryConfig(BaseModel):
     auto_remember: bool = True  # tasks concluídas viram memória episódica
     auto_recall: bool = True  # planejamento consulta a memória
     max_context_chars: int = 2000
+    # ---- lacuna 5b ---------------------------------------------------
+    #: limpar dado pessoal na escrita (nunca persiste o que reconhece)
+    scrub_pii: bool = True
+    #: tipos que não devem ser limpos (ex.: ["e-mail"] para e-mail corporativo)
+    pii_allow: list[str] = Field(default_factory=list)
+    #: memória multimodal (imagem/áudio/documento como referência)
+    media_enabled: bool = True
+    #: teto por arquivo
+    max_media_bytes: int = 5 * 1024 * 1024
+    #: tipos aceitos (conferidos pelos bytes, não pela extensão)
+    media_mimes: list[str] = Field(
+        default_factory=lambda: [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/wav",
+            "application/pdf",
+            "text/plain",
+        ]
+    )
 
 
 class RuntimeConfig(BaseModel):

@@ -1005,3 +1005,44 @@ A expressão do `WHEN` passa por validador: só colunas da lista branca, `NEW.`/
 **Consequências:** sem *polling*, sem SQL arbitrário vindo de configuração, e o
 evento de banco é processado uma vez. O custo é que o mecanismo é do SQLite:
 outro SGBD exige outro transporte (a fila e o dreno continuam valendo).
+
+---
+
+## ADR-057 · Dado pessoal não entra na memória: limpa na escrita, e diz o tipo
+
+**Status:** aceita (Fase 13, lacuna 5b).
+
+**Contexto:** memória é consultada por padrão e copiada para contexto de modelo.
+Guardar CPF/e-mail/cartão nela é vazar em câmera lenta — e “limpar na leitura”
+não resolve: o dado já foi persistido, vetorizado e copiado.
+
+**Decisão:** a limpeza roda **antes** de persistir (conteúdo e resumo), sobre
+padrões com validação (CPF e CNPJ por dígito verificador, cartão por Luhn). O
+que sai vira marcador (`[cpf removido]`), e o registro guarda `{tipo: contagem}`
+em `metadata.pii_removido` + evento `memory.pii_scrubbed` — **nunca o valor**.
+`memory.scrub_pii` desliga; `memory.pii_allow` libera um tipo específico.
+
+**Consequências:** o acervo não guarda o que não deve, e o que foi removido
+aparece (lacuna visível em vez de texto furado). O custo é conviver com falso
+positivo em número longo que passe no Luhn — o marcador deixa o erro aparente.
+
+---
+
+## ADR-058 · Mídia na memória: o binário no disco, o texto no acervo
+
+**Status:** aceita (Fase 13, lacuna 5b).
+
+**Contexto:** “memória multimodal” costuma virar binário dentro do banco (incha,
+não se inspeciona, vaza em silêncio) ou descrição inventada por um modelo que
+nunca viu o arquivo.
+
+**Decisão:** o arquivo vai para `artifacts/media/` com impressão SHA-256 e tipo
+conferido pelos bytes mágicos (não pela extensão); teto e lista branca de MIME
+são configuráveis. O que fica buscável é o **lado textual declarado** (legenda
+ou transcrição). Sem legenda, o registro existe e diz `[sem legenda]`. O binário
+nunca é vetorizado e nunca entra no contexto do modelo.
+
+**Consequências:** a memória aceita imagem, áudio e documento sem virar depósito
+de bytes, e o retrieval continua sendo sobre texto (auditável). O custo é honesto:
+não há visão nem transcrição local em V1 — a qualidade da busca depende da
+legenda que alguém escreveu.
