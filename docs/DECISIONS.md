@@ -968,3 +968,40 @@ recusa é veto e bloqueia. Enquanto falta voto, o release segue `submitted` —
 **Consequências:** promover para produção passa a exigir duas pessoas, e o fluxo
 antigo (uma pessoa) continua valendo para staging. O custo é operacional: em
 produção, uma promoção agora precisa de combinado — que é exatamente a intenção.
+
+---
+
+## ADR-055 · Quem executa é escolhido por lance declarado, não por opinião
+
+**Status:** aceita (Fase 13, lacuna 6b).
+
+**Contexto:** escolher "o primeiro agente da lista" é arbitrário; escolher por
+conversa entre modelos é caro, não determinístico e impossível de auditar.
+
+**Decisão:** cada agente elegível dá um lance com **números declarados** (custo
+estimado pelo provedor que ele usa e tamanho da sua fila). A estratégia
+(`equilibrado`, `menor_custo`, `menor_fila`, `declarado`) escolhe o menor. Quem
+não pode executar aparece na lista com o veto escrito. A negociação é gravada.
+
+**Consequências:** a escolha é explicável e repetível (mesmo estado, mesmo
+resultado); o custo é que o lance não captura "quem entende mais do assunto" —
+isso continua sendo declaração humana (capacidade, permissões, ambiente).
+
+---
+
+## ADR-056 · Gatilho de banco: o banco avisa, o Runtime só lê a fila
+
+**Status:** aceita (Fase 13, lacuna 6b).
+
+**Contexto:** reagir a mudança de dado normalmente vira *polling* — um processo
+olhando tabela de negócio de minuto em minuto, atrasado e disputando lock.
+
+**Decisão:** o gatilho é declarado e instalado como `CREATE TRIGGER` do SQLite,
+que escreve em `db_events`. `drain()` publica o que está pendente no barramento
+de eventos do Runtime (o mesmo dos gatilhos por evento) e marca como processado.
+A expressão do `WHEN` passa por validador: só colunas da lista branca, `NEW.`/
+`OLD.` conforme o evento, literais e comparações.
+
+**Consequências:** sem *polling*, sem SQL arbitrário vindo de configuração, e o
+evento de banco é processado uma vez. O custo é que o mecanismo é do SQLite:
+outro SGBD exige outro transporte (a fila e o dreno continuam valendo).

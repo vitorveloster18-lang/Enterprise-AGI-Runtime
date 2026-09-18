@@ -21,6 +21,7 @@ from ..core.errors import AuthorizationError
 TASK_READ = "task.read"
 TASK_SUBMIT = "task.submit"
 TASK_CANCEL = "task.cancel"
+TASK_HANDOFF = "task.handoff"      # lacuna 6b: repassar task para outro agente
 TOOLS_EXECUTE = "tools.execute"
 APPROVAL_READ = "approval.read"
 APPROVAL_DECIDE = "approval.decide"
@@ -79,6 +80,7 @@ _VIEWER = {TASK_READ, POLICY_READ, AGENT_READ, APPROVAL_READ, MEMORY_READ, AUDIT
 _OPERATOR = _VIEWER | {
     TASK_SUBMIT,
     TASK_CANCEL,
+    TASK_HANDOFF,      # lacuna 6b: repassar task é ato de operação, com motivo
     TOOLS_EXECUTE,
     MEMORY_WRITE,
     POLICY_SYNC,

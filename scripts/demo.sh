@@ -244,7 +244,20 @@ if [ -f "$WORKSPACE/agents/cashflow-agent.yaml" ]; then
   "$EGR_BIN" pack status || true
 fi
 
-step "22/23 · Lacuna 8b — laboratório (qualidade e carga)"
+step "22/24 · Lacuna 6b — coordenação negociada e gatilhos de banco"
+"$EGR_BIN" task negotiate "conciliar lançamentos do dia" || true
+"$EGR_BIN" db trigger-add "task falhou" --on tasks --event update \
+  --when "NEW.status = 'failed'" --emit db.task_failed || true
+"$EGR_BIN" db trigger-add "task criada" --on tasks --event insert \
+  --when "NEW.status = 'pending'" --emit db.task_created || true
+"$EGR_BIN" db triggers || true
+# uma task nova faz o gatilho de insert avisar; o dreno transforma em evento
+"$EGR_BIN" task create "demo de gatilho de banco" --agent finance-agent || true
+"$EGR_BIN" db events || true
+"$EGR_BIN" db drain || true
+"$EGR_BIN" db events || true
+
+step "23/24 · Lacuna 8b — laboratório (qualidade e carga)"
 SUITE=$("$EGR_BIN" eval list --json 2>/dev/null | sed -n 's/.*"id": "\([a-z0-9._-]*\)".*/\1/p' | head -1)
 if [ -n "$SUITE" ]; then
   "$EGR_BIN" eval judge "$SUITE" --method similaridade || true
@@ -255,7 +268,7 @@ else
   echo "nenhuma suíte registrada ainda"
 fi
 
-step "23/23 · auditoria e memória"
+step "24/24 · auditoria e memória"
 "$EGR_BIN" audit verify
 "$EGR_BIN" audit stats
 "$EGR_BIN" memory search "documentos" || true

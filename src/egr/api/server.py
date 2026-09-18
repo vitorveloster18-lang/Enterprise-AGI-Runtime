@@ -14,6 +14,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ..core.errors import AuthenticationError, AuthorizationError, ConfigError
+from ..core.ids import new_id
+from ..domain.coordination import DatabaseTrigger
 from ..domain.evaluation import EvaluationSuite
 from ..evaluation.security import scan as security_scan
 from ..runtime.runtime import Runtime
@@ -154,6 +156,35 @@ class EvaluationLoadRequest(BaseModel):
 
     requests: int = 10
     concurrency: int = 2
+    by: str = "human:api"
+
+
+class NegotiateRequest(BaseModel):
+    """Lacuna 6b: negociação de execução — quem disputa e por qual estratégia."""
+
+    objective: str
+    capability: str | None = None
+    strategy: str | None = None
+    agents: list[str] | None = None
+    by: str = "human:api"
+
+
+class HandoffRequest(BaseModel):
+    """Lacuna 6b: repasse de task com motivo."""
+
+    to: str
+    reason: str = ""
+    by: str = "human:api"
+
+
+class DatabaseTriggerRequest(BaseModel):
+    """Lacuna 6b: gatilho de banco (expressão validada antes de virar SQL)."""
+
+    name: str
+    table: str
+    event: str = "insert"
+    when: str = ""
+    emit: str
     by: str = "human:api"
 
 
@@ -604,6 +635,105 @@ def create_app(runtime: Runtime) -> FastAPI:
         """Histórico das simulações de carga."""
 
         return [item.summary() for item in runtime.evaluation_loads.list(suite_id=suite_id, limit=limit)]
+
+    # ---- lacuna 6b: coordenação negociada --------------------------------
+    @app.post("/v1/tasks/negotiate", tags=["orchestration"])
+    def task_negotiate(request: NegotiateRequest) -> dict[str, Any]:
+        """Disputa declarada: cada agente dá um lance, a estratégia escolhe."""
+
+        try:
+            negotiation = runtime.coordinator.negotiate(
+                request.objective,
+                capability=request.capability,
+                strategy=request.strategy,
+                agents=request.agents,
+                actor=request.by,
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {
+            **negotiation.summary(),
+            "lances": [bid.summary() for bid in negotiation.bids],
+        }
+
+    @app.post("/v1/tasks/{task_id}/handoff", tags=["orchestration"])
+    def task_handoff(task_id: str, request: HandoffRequest) -> dict[str, Any]:
+        """Repassa a task para outro agente (com motivo e limite)."""
+
+        try:
+            task = runtime.coordinator.handoff(
+                task_id, request.to, reason=request.reason, actor=request.by
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {"task": task.id, "agente": task.agent_id, "repasses": task.context.get("handoffs") or []}
+
+    @app.get("/v1/db/triggers", tags=["database"])
+    def db_triggers() -> dict[str, Any]:
+        """Gatilhos declarados e a fila do que o banco avisou."""
+
+        return runtime.db_trigger_manager.status()
+
+    @app.post("/v1/db/triggers", tags=["database"])
+    def db_trigger_install(request: DatabaseTriggerRequest) -> dict[str, Any]:
+        """Declara e instala um gatilho (recusa SQL fora da lista branca)."""
+
+        trigger = DatabaseTrigger(
+            id=new_id("trg"),
+            name=request.name,
+            table=request.table,
+            event=request.event,
+            when=request.when,
+            emit=request.emit,
+            created_by=request.by,
+        )
+        try:
+            saved = runtime.db_trigger_manager.install(trigger, actor=request.by)
+        except ConfigError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return saved.summary()
+
+    @app.delete("/v1/db/triggers/{trigger_id}", tags=["database"])
+    def db_trigger_remove(trigger_id: str) -> dict[str, Any]:
+        """Remove o gatilho e o SQL correspondente."""
+
+        try:
+            runtime.db_trigger_manager.uninstall(trigger_id, actor="human:api")
+        except ConfigError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"removido": trigger_id}
+
+    @app.post("/v1/db/drain", tags=["database"])
+    def db_drain(limit: int = 50) -> dict[str, Any]:
+        """Drena a fila: o que o banco avisou vira evento do Runtime."""
+
+        processed = runtime.db_trigger_manager.drain(limit=limit)
+        return {
+            "processados": len(processed),
+            "eventos": [
+                {"id": item.id, "tabela": item.table, "emite": item.event, "linha": item.row_id}
+                for item in processed
+            ],
+            "pendente": runtime.db_events.count(pending_only=True),
+        }
+
+    @app.get("/v1/db/events", tags=["database"])
+    def db_events(limit: int = 20) -> list[dict[str, Any]]:
+        """O que o banco já avisou."""
+
+        return [
+            {
+                "id": item.id,
+                "tabela": item.table,
+                "emite": item.event,
+                "linha": item.row_id,
+                "dados": item.payload,
+                "processado": item.processed_at is not None,
+            }
+            for item in runtime.db_trigger_manager.events(limit=limit)
+        ]
 
     @app.get("/v1/release", tags=["release"])
     def release_status() -> dict[str, Any]:

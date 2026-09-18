@@ -227,6 +227,81 @@ def resume(
     success(f"task {task.id} retomada")
 
 
+@app.command(name="negotiate")
+def negotiate(
+    objective: str = typer.Argument(..., help="o que precisa ser feito"),
+    capability: str = typer.Option(None, "--capability", "-c", help="exige capacidade (ex.: reasoning)"),
+    strategy: str = typer.Option(None, "--strategy", "-s", help="equilibrado|menor_custo|menor_fila|declarado"),
+    models: str = typer.Option(None, "--agents", help="agentes que disputam (separados por vírgula)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Negocia quem executa: cada agente elegível dá um lance, a estratégia escolhe."""
+
+    from ...core.errors import ConfigError
+
+    runtime = get_runtime(workspace)
+    try:
+        negotiation = runtime.coordinator.negotiate(
+            objective,
+            capability=capability,
+            strategy=strategy,
+            agents=[item.strip() for item in models.split(",")] if models else None,
+        )
+    except ConfigError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    kv(
+        f"Negociação · {negotiation.id}",
+        {
+            "estratégia": negotiation.strategy,
+            "escolhido": negotiation.chosen or "-",
+            "motivo": negotiation.reason,
+        },
+    )
+    table(
+        "Lances",
+        ["agente", "custo", "fila", "nota", "pode"],
+        [
+            [
+                bid.agent,
+                f"{bid.estimated_cost:.6f}",
+                bid.queue,
+                f"{bid.score:.4f}",
+                "sim" if bid.allowed else f"não ({bid.veto})",
+            ]
+            for bid in negotiation.bids
+        ],
+    )
+    if negotiation.chosen is None:
+        warning("nenhum agente pode executar")
+        raise typer.Exit(code=1)
+    success(f"{negotiation.chosen} escolhido por '{negotiation.strategy}'")
+
+
+@app.command(name="handoff")
+def handoff(
+    task_id: str = typer.Argument(...),
+    to: str = typer.Option(..., "--to", help="agente que recebe"),
+    reason: str = typer.Option("", "--reason", "-r", help="por que está passando"),
+    by: str = typer.Option("human:cli", "--by", "-b"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Repassa uma task para outro agente (com motivo, limite e trilha)."""
+
+    from ...core.errors import AuthorizationError, ConfigError
+
+    runtime = get_runtime(workspace)
+    try:
+        task = runtime.coordinator.handoff(task_id, to, reason=reason, actor=by)
+    except (ConfigError, AuthorizationError) as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    history = task.context.get("handoffs") or []
+    success(f"task {task.id} repassada para {to} ({len(history)} de "
+            f"{runtime.settings.config.coordination.max_handoffs} repasses)")
+
+
 @app.command(name="cancel")
 def cancel(
     task_id: str = typer.Argument(...),

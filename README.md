@@ -124,7 +124,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 540 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
+| Testes | `tests/` | 568 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, coordenação negociada e gatilhos de banco, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 
@@ -465,6 +465,23 @@ de pessoas diferentes** (`release.min_approvals_production`), ninguém vota duas
 vezes, quem criou não conta para o próprio quórum e recusa é veto. O `deploy`
 confere assinatura e também o manifesto que foi aprovado — aprovar uma coisa e
 aplicar outra é recusado.
+
+**Coordenação negociada e gatilhos de banco** (lacuna 6b): quem executa deixa
+de ser o primeiro da lista, e o banco passa a avisar quando muda.
+
+```bash
+egr task negotiate "conciliar lançamentos" --strategy menor_fila
+egr task handoff <task> --to <agente> --reason "precisa de visão de documento"
+egr db trigger-add "task falhou" --on tasks --event update \
+    --when "NEW.status = 'failed'" --emit db.task_failed
+egr db drain                       # o que o banco avisou vira evento
+```
+
+Cada agente elegível dá um lance (custo estimado pelo provedor que usa e tamanho
+da fila) e a estratégia escolhe; quem não pode aparece com o motivo do veto.
+Handoff tem motivo, limite e permissão — repassar sem parar é fugir do problema.
+O gatilho de banco é um `CREATE TRIGGER` real: nada de *polling*, e o `when`
+aceita só colunas da lista branca (SQL livre é recusado antes de chegar no banco).
 
 Duas lacunas da Fase 12 também fechadas aqui: o **worker da fila**
 (`egr integration worker`) é o processo explícito que drena o que já venceu —

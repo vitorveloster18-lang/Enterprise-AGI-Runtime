@@ -115,6 +115,11 @@ class EventType(BaseStrEnum):
     # lacuna 9b: assinatura criptográfica e quórum de aprovação
     RELEASE_SIGNED = "release.signed"
     RELEASE_APPROVAL_RECORDED = "release.approval_recorded"
+    # lacuna 6b: coordenação negociada (lances, handoff) e gatilhos de banco
+    TASK_NEGOTIATED = "task.negotiated"
+    TASK_HANDOFF = "task.handoff"
+    DB_TRIGGER_INSTALLED = "db.trigger_installed"
+    DB_TRIGGER_FIRED = "db.trigger_fired"
     ARTIFACT_VERSIONED = "artifact.versioned"
     # gateway de canais (Fase 10): Telegram/Slack/Web são interfaces, não núcleo
     GATEWAY_MESSAGE_RECEIVED = "gateway.message_received"

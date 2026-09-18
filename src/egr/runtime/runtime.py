@@ -39,6 +39,7 @@ from ..integrations import ConnectorService
 from ..memory import MemoryService
 from ..models import ModelGateway
 from ..models.gateway import CompletionRequest, Message, build_providers
+from ..orchestration.coordination import Coordinator
 from ..packs import PackService
 from ..policies import PolicyEngine, default_policies
 from ..policies.engine import PolicyContext
@@ -56,6 +57,8 @@ from ..storage.repositories import (
     ArtifactVersionRepository,
     AttachmentRepository,
     ChangeProposalRepository,
+    DatabaseEventRepository,
+    DatabaseTriggerRepository,
     EnterpriseRepository,
     EvaluationLoadRepository,
     EvaluationRunRepository,
@@ -70,6 +73,7 @@ from ..storage.repositories import (
     KeyRepository,
     MemoryRepository,
     ModelUsageRepository,
+    NegotiationRepository,
     PackRepository,
     PolicyRepository,
     ReleaseRepository,
@@ -78,6 +82,7 @@ from ..storage.repositories import (
     TaskRepository,
     WorkflowRunRepository,
 )
+from ..storage.triggers import TriggerManager
 from ..tools import ToolRegistry, register_builtin_tools
 from ..tools.protocol import ToolContext
 from .agent_engine import AgentEngine
@@ -186,6 +191,10 @@ class Runtime:
         self.evaluations = EvaluationRunRepository(self.db)
         # lacuna 8b: histórico de simulações de carga
         self.evaluation_loads = EvaluationLoadRepository(self.db)
+        # lacuna 6b: negociações registradas e gatilhos de banco
+        self.negotiations = NegotiationRepository(self.db)
+        self.db_triggers = DatabaseTriggerRepository(self.db)
+        self.db_events = DatabaseEventRepository(self.db)
         self.releases = ReleaseRepository(self.db)
         self.versions = ArtifactVersionRepository(self.db)
         self.gateway_bindings = GatewayBindingRepository(self.db)
@@ -231,6 +240,9 @@ class Runtime:
         self.evaluator = EvaluationRunner(self)
         self.evaluation_suites = self._load_suites()
         self.release_manager = ReleaseManager(self)
+        # lacuna 6b: coordenação negociada (lances e handoff) e gatilhos de banco
+        self.coordinator = Coordinator(self)
+        self.db_trigger_manager = TriggerManager(self)
         # Fase 10: canais (Telegram/Slack/Web) — `self.gateway` continua sendo o ModelGateway
         self.channels = GatewayService(self)
         self._load_channels()
@@ -246,6 +258,8 @@ class Runtime:
         self._load_agents()
         self._load_workflows()
         self._triggers_bound = False
+        # lacuna 6b: gatilhos de banco declarados voltam a valer em todo boot
+        self.installed_db_triggers = self.db_trigger_manager.install_all()
 
     # ---- construction -----------------------------------------------
     @classmethod
@@ -818,6 +832,8 @@ class Runtime:
                 "by_status": self.runs.stats(),
                 "recent": [run.id for run in runs[:5]],
             },
+            # lacuna 6b: coordenação negociada e gatilhos de banco
+            "coordenação": self.coordination_status(),
             "scheduler": {
                 "due_now": [
                     item for item in self.scheduler.due() if "error" not in item
@@ -826,6 +842,13 @@ class Runtime:
                 "upcoming": self.scheduler.upcoming(limit=5),
             },
         }
+
+    def coordination_status(self) -> dict[str, Any]:
+        """Lacuna 6b: quem disputou, quem ganhou e o que o banco avisou."""
+
+        coordination = self.coordinator.status()
+        coordination["gatilhos_de_banco"] = self.db_trigger_manager.status()
+        return coordination
 
     def governance_status(self) -> dict[str, Any]:
         """Promoção entre ambientes: releases, versões e o que está aplicado."""

@@ -266,3 +266,68 @@ Assinatura destacada (chave fora da máquina), infraestrutura de chaves pública
 (PKI/certificados) e quórum por papel específico (ex.: "um voto tem de ser do
 time de segurança"). Tudo configurável depois; nada disso é necessário para
 garantir que **conteúdo aprovado é conteúdo aplicado**.
+
+---
+
+## 5. Lacuna 6b — Coordenação negociada e gatilhos de banco
+
+A Fase 6 orquestra **o quê** roda. Faltavam duas peças: **quem** executa ser uma
+escolha defensável, e **o que dispara** um workflow incluir mudança de dado.
+
+### 5.1 Negociação entre agentes
+
+```bash
+egr task negotiate "conciliar lançamentos do dia"          # quem deve executar
+egr task negotiate "resumir contrato" --capability reasoning
+egr task negotiate "x" --strategy menor_fila|menor_custo|declarado
+egr task handoff <task> --to <agente> --reason "motivo"    # repasse com motivo
+```
+
+Cada agente elegível declara um **lance** — custo estimado (tokens do objetivo ×
+preço do provedor que ele usa) e tamanho da fila — e a estratégia escolhe:
+
+| Estratégia | Critério |
+|---|---|
+| `equilibrado` (padrão) | custo normalizado **+** fila normalizada |
+| `menor_custo` | só o custo estimado |
+| `menor_fila` | só a fila do agente |
+| `declarado` | `coordination.default_agent`, sem disputa |
+
+Transparência: quem **não pode** executar aparece na lista com o motivo do veto
+(agente desabilitado, ambiente diferente, capacidade incompatível, sem provedor)
+em vez de sumir. A escolha é determinística (empate desempata por nome) e fica
+registrada em `negotiations` + evento `task.negotiated`.
+
+### 5.2 Handoff
+
+Repassar uma task para outro agente é remédio, não hábito: exige motivo, tem
+limite (`coordination.max_handoffs`, padrão 3) e, com identidade exigida, a
+permissão `task.handoff`. Task em espera volta para `pending` (o agente novo
+replaneja). Cada repasse fica em `task.context["handoffs"]` e no evento
+`task.handoff`.
+
+### 5.3 Gatilhos de banco
+
+```bash
+egr db trigger-add "task falhou" --on tasks --event update \
+    --when "NEW.status = 'failed'" --emit db.task_failed
+egr db triggers      # o que está declarado e o tamanho da fila
+egr db drain         # o que o banco avisou vira evento do Runtime
+egr db events        # histórico do que já foi avisado
+```
+
+O gatilho é um `CREATE TRIGGER` **de verdade** no SQLite — quem avisa é o banco,
+não um processo olhando tabela de negócio. O aviso cai em `db_events`
+(`processed_at` nulo) e `drain()` publica no mesmo barramento de eventos: um
+workflow com `trigger: {type: event, event: db.task_failed}` começa sozinho.
+
+**O `when` não é SQL livre.** Só entram colunas da lista branca da tabela
+(`tasks`, `approvals`, `evaluation_runs`, `integration_jobs`), `NEW.`/`OLD.`
+conforme o evento, literais, comparações e operadores lógicos. `; DROP TABLE …`
+é recusado antes de chegar no banco, e o erro diz onde.
+
+### 5.4 O que continua fora
+
+Lance por modelo (o agente "se vendendo" com linguagem), leilão com
+compromisso de execução e gatilho de banco em outros SGBDs (o mecanismo é
+SQLite; para Postgres a mesma ideia vira `NOTIFY`/logica externa).

@@ -177,6 +177,19 @@ class ChannelConfig(BaseModel):
     webhook_secret_env: str = ""
 
 
+class CoordinationConfig(BaseModel):
+    """Lacuna 6b: quem executa o quê, e quem avisa quando o banco muda."""
+
+    #: negociação ligada (desligado = comportamento antigo, humano escolhe)
+    enabled: bool = True
+    #: equilibrado | menor_custo | menor_fila | declarado
+    strategy: str = "equilibrado"
+    #: agente fixo quando a estratégia é `declarado`
+    default_agent: str = ""
+    #: handoffs por task: trocar de agente sem parar é fugir do problema
+    max_handoffs: int = 3
+
+
 class ReleasePolicyConfig(BaseModel):
     """Lacuna 9b: promoção assinada e com quórum — prometer não é promover."""
 
@@ -360,6 +373,8 @@ class EGRConfig(BaseModel):
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
+    #: lacuna 6b: coordenação negociada entre agentes
+    coordination: CoordinationConfig = Field(default_factory=CoordinationConfig)
     #: lacuna 9b: promoção entre ambientes (assinatura e quórum)
     release: ReleasePolicyConfig = Field(default_factory=ReleasePolicyConfig)
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
@@ -454,6 +469,7 @@ def dump_config(config: EGRConfig) -> str:
 
 __all__ = [
     "BudgetConfig",
+    "CoordinationConfig",
     "EGRConfig",
     "Literal",
     "LoggingConfig",

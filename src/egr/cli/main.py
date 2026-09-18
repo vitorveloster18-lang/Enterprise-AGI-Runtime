@@ -11,6 +11,7 @@ from .commands import (
     agents,
     approvals,
     audits,
+    database,
     dev,
     evaluation,
     gateway,
@@ -70,6 +71,7 @@ app.add_typer(mcp.app, name="mcp")
 app.add_typer(proposals.app, name="proposal")
 # governança de produção (Fase 9): promoção com versão, evidência e volta
 app.add_typer(releases.app, name="release")
+app.add_typer(database.app, name="db")
 app.add_typer(governance.app, name="lifecycle")
 # segurança (Fase 4): identidade, RBAC, cofre e chaves
 app.add_typer(security.app, name="security")

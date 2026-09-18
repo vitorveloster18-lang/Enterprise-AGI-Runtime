@@ -11,10 +11,12 @@ from datetime import datetime
 from typing import Any
 
 from ..core.timeutil import iso, utcnow
+from ..core.timeutil import parse as parse_datetime
 from ..domain.agent import AgentSpec
 from ..domain.approval import Approval
 from ..domain.artifact import Artifact
 from ..domain.channel import Attachment, ChannelBinding, GatewayMessage
+from ..domain.coordination import DatabaseEvent, DatabaseTrigger, Negotiation
 from ..domain.enterprise import Enterprise
 from ..domain.evaluation import EvaluationRun, EvaluationSuite, LoadRun
 from ..domain.integration import InboundEvent, Integration, IntegrationCall, IntegrationJob
@@ -36,6 +38,12 @@ def _dump(model: Any) -> str:
 
 def _load(row, model):
     return model.model_validate(json.loads(row["data"]))
+
+
+def _parse(value: str):
+    """Converte o texto do banco em datetime (ISO com ou sem sufixo Z)."""
+
+    return parse_datetime(value)
 
 
 class EnterpriseRepository:
@@ -1306,6 +1314,164 @@ class EvaluationLoadRepository:
 
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM evaluation_loads") or 0)
+
+
+# ---------------------------------------------------------------------------
+# Lacuna 6b — coordenação negociada e gatilhos de banco
+# ---------------------------------------------------------------------------
+class NegotiationRepository:
+    """Lacuna 6b: a escolha de agente registrada — decisão que se pode reler."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, negotiation: Negotiation) -> Negotiation:
+        self.db.execute(
+            "INSERT INTO negotiations (id, objective, strategy, chosen, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET chosen = excluded.chosen, "
+            "data = excluded.data",
+            (
+                negotiation.id,
+                negotiation.objective,
+                negotiation.strategy,
+                negotiation.chosen,
+                _dump(negotiation),
+                iso(negotiation.created_at),
+            ),
+        )
+        self.db.commit()
+        return negotiation
+
+    def get(self, negotiation_id: str) -> Negotiation | None:
+        row = self.db.query_one("SELECT * FROM negotiations WHERE id = ?", (negotiation_id,))
+        return _load(row, Negotiation) if row else None
+
+    def list(self, limit: int = 10) -> list[Negotiation]:
+        rows = self.db.query(
+            "SELECT * FROM negotiations ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
+        )
+        return [_load(row, Negotiation) for row in rows]
+
+    def count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM negotiations") or 0)
+
+
+class DatabaseTriggerRepository:
+    """Lacuna 6b: definições de gatilho (o SQL em si vive no banco)."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, trigger: DatabaseTrigger) -> DatabaseTrigger:
+        self.db.execute(
+            "INSERT INTO db_triggers (id, name, table_name, event, when_expr, emit, enabled, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, "
+            "when_expr = excluded.when_expr, emit = excluded.emit, enabled = excluded.enabled, "
+            "data = excluded.data",
+            (
+                trigger.id,
+                trigger.name,
+                trigger.table,
+                trigger.event,
+                trigger.when,
+                trigger.emit,
+                int(trigger.enabled),
+                _dump(trigger),
+                iso(trigger.created_at),
+            ),
+        )
+        self.db.commit()
+        return trigger
+
+    def get(self, trigger_id: str) -> DatabaseTrigger | None:
+        row = self.db.query_one("SELECT * FROM db_triggers WHERE id = ?", (trigger_id,))
+        return _load(row, DatabaseTrigger) if row else None
+
+    def list(self, table: str | None = None, enabled_only: bool = False) -> list[DatabaseTrigger]:
+        clauses, params = [], []
+        if table:
+            clauses.append("table_name = ?")
+            params.append(table)
+        if enabled_only:
+            clauses.append("enabled = 1")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.db.query(f"SELECT * FROM db_triggers {where} ORDER BY name", (*params,))
+        return [_load(row, DatabaseTrigger) for row in rows]
+
+    def delete(self, trigger_id: str) -> None:
+        self.db.execute("DELETE FROM db_triggers WHERE id = ?", (trigger_id,))
+        self.db.commit()
+
+
+class DatabaseEventRepository:
+    """Lacuna 6b: a fila do que o banco avisou (processado uma vez, na ordem).
+
+    As linhas desta tabela são escritas por um `CREATE TRIGGER` do SQLite — por
+    isso não têm o envelope `data` das outras: o modelo é montado coluna a coluna.
+    """
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    def save(self, event: DatabaseEvent) -> DatabaseEvent:
+        self.db.execute(
+            "INSERT INTO db_events (id, trigger_id, event, table_name, row_id, payload, processed_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, "
+            "processed_at = excluded.processed_at",
+            (
+                event.id,
+                event.trigger_id,
+                event.event,
+                event.table,
+                event.row_id,
+                _dump(event.payload),
+                iso(event.processed_at) if event.processed_at else None,
+                iso(event.created_at),
+            ),
+        )
+        self.db.commit()
+        return event
+
+    @staticmethod
+    def _from_row(row) -> DatabaseEvent:
+        payload = row["payload"]
+        try:
+            data = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            data = {}
+        return DatabaseEvent(
+            id=row["id"],
+            trigger_id=row["trigger_id"],
+            event=row["event"],
+            table=row["table_name"],
+            row_id=row["row_id"] or "",
+            payload=data,
+            processed_at=_parse(row["processed_at"]) if row["processed_at"] else None,
+            created_at=_parse(row["created_at"]) or utcnow(),
+        )
+
+    def pending(self, limit: int = 50) -> list[DatabaseEvent]:
+        rows = self.db.query(
+            "SELECT * FROM db_events WHERE processed_at IS NULL ORDER BY created_at, rowid LIMIT ?",
+            (limit,),
+        )
+        return [self._from_row(row) for row in rows]
+
+    def mark_processed(self, event_id: str, *, at=None) -> None:
+        self.db.execute(
+            "UPDATE db_events SET processed_at = ? WHERE id = ?", (iso(at or utcnow()), event_id)
+        )
+        self.db.commit()
+
+    def list(self, limit: int = 20) -> list[DatabaseEvent]:
+        rows = self.db.query("SELECT * FROM db_events ORDER BY rowid DESC LIMIT ?", (limit,))
+        return [self._from_row(row) for row in rows]
+
+    def count(self, *, pending_only: bool = False) -> int:
+        sql = "SELECT COUNT(*) FROM db_events"
+        if pending_only:
+            sql += " WHERE processed_at IS NULL"
+        return int(self.db.scalar(sql) or 0)
 
 
 # ---------------------------------------------------------------------------
