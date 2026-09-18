@@ -1200,11 +1200,14 @@ class Runtime:
                     {"check": f"cron:{item['workflow']}", "ok": False, "detail": item["error"]}
                 )
         memory_stats = self.memory.stats()
+        # memória vazia não é defeito: é o primeiro dia do workspace. O que
+        # importa são os registros que existem e não têm vetor (abaixo).
         add(
             "memory",
-            memory_stats["total"] > 0,
+            True,
             f"{memory_stats['total']} registros "
-            f"({memory_stats['active']} ativos, {memory_stats['archived']} arquivados)",
+            f"({memory_stats['active']} ativos, {memory_stats['archived']} arquivados)"
+            + ("" if memory_stats["total"] else " — vazia: use egr memory write para começar o acervo"),
         )
         if memory_stats["without_vector"]:
             checks.append(
@@ -1309,12 +1312,20 @@ class Runtime:
                 )
 
         evaluation = self.evaluation_status()
+        suites_total = evaluation["suites"]["total"]
+        # workspace recém-criado não está quebrado por ainda não medir nada:
+        # sem suíte não há falha, há um convite (o doctor aponta o comando)
         add(
             "evaluation",
-            evaluation["suites"]["total"] > 0,
-            f"{evaluation['suites']['total']} suíte(s), "
+            True,
+            f"{suites_total} suíte(s), "
             f"{evaluation['runs']['total']} execução(ões), "
-            f"vereditos: {', '.join(f'{k}={v}' for k, v in sorted(evaluation['runs']['by_status'].items())) or '-'}",
+            f"vereditos: {', '.join(f'{k}={v}' for k, v in sorted(evaluation['runs']['by_status'].items())) or '-'}"
+            + (
+                ""
+                if suites_total
+                else " — nenhuma suíte declarada: rode `egr eval smoke <artefato>` para começar a medir"
+            ),
         )
         for suite_id, summary in evaluation["runs"]["last_by_suite"].items():
             if summary["status"] in ("failed", "regressed", "error"):
