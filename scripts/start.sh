@@ -22,6 +22,7 @@ REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE="${EGR_WORKSPACE:-$HOME/egr-workspace}"
 MODE="menu"
 NO_INSTALL=0
+CREATED=0
 INIT_ARGS=()
 
 # ---------------------------- utilidades -------------------------------
@@ -103,6 +104,7 @@ if [ ! -d "$WORKSPACE/.egr" ]; then
     mkdir -p "$WORKSPACE" 2>/dev/null
     # shellcheck disable=SC2086
     if $EGR init "$WORKSPACE" ${INIT_ARGS[*]:-} >/dev/null 2>&1; then
+        CREATED=1
         ok "workspace inicializado"
     else
         fail "não consegui inicializar o workspace em $WORKSPACE"
@@ -129,22 +131,30 @@ else
     step_fail "banco sem migrações aplicadas (rode: egr status)"
 fi
 
-# 3.2 doctor (conta o que está quebrado; avisos de sandbox/chave são esperados)
+# 3.2 doctor: separa o que é do ambiente do que é problema de verdade
 doctor_out="$(egr doctor 2>&1 || true)"
-doctor_fail="$(printf '%s' "$doctor_out" | grep -c 'FALHA' || true)"
-if [ "${doctor_fail:-0}" -eq 0 ]; then
+doctor_fail="$(printf '%s' "$doctor_out" | grep 'FALHA' || true)"
+if [ -z "$doctor_fail" ]; then
     step_ok "doctor: tudo OK"
 else
-    warn "doctor: ${doctor_fail} check(s) FALHA — detalhe abaixo"
-    printf '%s\n' "$doctor_out" | grep 'FALHA' | sed 's/^/    /'
-    # sandbox em modo processo e chave ausente são o começo normal de um
-    # workspace novo; qualquer outra falha é problema de verdade
-    unexpected="$(printf '%s' "$doctor_out" | grep 'FALHA' \
+    # do ambiente: não há conserto dentro do Runtime (o host não tem contêiner)
+    ambiente="$(printf '%s' "$doctor_fail" | grep -E 'sandbox:isolamento' || true)"
+    # configuração pendente: chave mestra e identidades ainda não criadas
+    novo="$(printf '%s' "$doctor_fail" | grep -E 'security:chave|security:identidade' || true)"
+    real="$(printf '%s' "$doctor_fail" \
         | grep -vE 'sandbox:isolamento|security:chave|security:identidade' || true)"
-    if [ -n "$unexpected" ]; then
-        step_fail "doctor apontou falha fora do esperado para workspace novo"
+
+    printf '%s\n' "$doctor_fail" | sed 's/^/    /'
+    if [ -n "$ambiente" ]; then
+        info "esperado do ambiente: sandbox sem contêiner (Docker/Podman não instalado)"
+    fi
+    if [ -n "$novo" ]; then
+        info "configuração pendente: chave mestra/identidades (egr key init · egr identity add)"
+    fi
+    if [ -n "$real" ]; then
+        step_fail "doctor apontou falha que não é do ambiente: $(printf '%s' "$real" | head -1 | tr -s ' ')"
     else
-        info "falhas esperadas de um workspace novo (sem contêiner, sem chave, sem identidades)"
+        step_ok "doctor: sem falha fora do esperado"
     fi
 fi
 

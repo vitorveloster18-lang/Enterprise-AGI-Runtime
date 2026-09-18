@@ -22,6 +22,30 @@ egr version
 
 Requisitos: Python 3.11+, nenhuma infraestrutura externa (SQLite local, roda offline).
 
+### 1.1 Partida local (um comando, sem interface online)
+
+Para quem roda no terminal — inclusive no Termux — existe um script que **prepara
+o ambiente, testa o Runtime de verdade e abre um painel de linha de comando**.
+Nada de servidor: `egr serve` nunca é chamado.
+
+```bash
+bash scripts/start.sh                 # prepara + auto-teste + menu
+bash scripts/start.sh --check         # só o auto-teste (sai 0 = ok, 1 = problema)
+bash scripts/start.sh --shell         # prompt livre: digite comandos sem o "egr"
+bash scripts/start.sh --workspace DIR # aponta para outro workspace
+
+bash scripts/install-alias.sh          # cria o comando E (executável ~/bin/E + alias)
+source ~/.bashrc && E                 # (use `bash scripts/install-alias.sh KR` para outro nome)
+```
+
+O instalador cria as duas coisas: o executável `~/bin/E` (funciona em qualquer
+shell, até dentro de script) e o alias no rc do shell (atalho de digitação).
+
+O auto-teste não pergunta se o comando existe: ele confere migrações aplicadas,
+roda o `doctor`, verifica a cadeia de auditoria (`egr audit verify`) e executa
+uma task pelo caminho governado. Falhas de workspace novo (sem contêiner, sem
+chave mestra, sem identidades) aparecem como esperadas — o resto é problema.
+
 ## 2. Primeiro milestone (60 segundos)
 
 ```bash
