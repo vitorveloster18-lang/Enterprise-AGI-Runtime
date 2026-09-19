@@ -78,14 +78,22 @@ else
         warn "sem venv em $REPO/.venv — usando o python do sistema (--no-install)"
     else
         info "preparando o ambiente (primeira vez demora um pouco)…"
+        # -r requirements.txt traz as dependências; `pip install -e .` é o que
+        # cria o comando `egr` de verdade (instalar só as deps deixa o binário
+        # de fora — e aí o `egr init` abaixo falha sem dizer por quê)
         if "$PY" -m venv "$REPO/.venv" >/dev/null 2>&1 \
            && "$REPO/.venv/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 \
-           && "$REPO/.venv/bin/python" -m pip install --quiet -r "$REPO/requirements.txt" >/dev/null 2>&1; then
+           && "$REPO/.venv/bin/python" -m pip install --quiet -r "$REPO/requirements.txt" >/dev/null 2>&1 \
+           && "$REPO/.venv/bin/python" -m pip install --quiet -e "$REPO" >/dev/null 2>&1 \
+           && [ -x "$REPO/.venv/bin/egr" ]; then
             EGR="$REPO/.venv/bin/egr"
             ok "ambiente criado em $REPO/.venv"
+        elif [ -x "$REPO/.venv/bin/python" ] && "$REPO/.venv/bin/python" -c "import egr" >/dev/null 2>&1; then
+            EGR="$REPO/.venv/bin/python -m egr"
+            warn "venv criada, mas sem o comando `egr`; usando o módulo direto"
         else
             EGR="$PY -m egr"
-            warn "não consegui criar a venv (sem rede?); tentando o python do sistema"
+            warn "não consegui preparar a venv (sem rede?); tentando o python do sistema"
         fi
     fi
 fi
@@ -103,11 +111,12 @@ if [ ! -d "$WORKSPACE/.egr" ]; then
     info "workspace novo: criando em $WORKSPACE"
     mkdir -p "$WORKSPACE" 2>/dev/null
     # shellcheck disable=SC2086
-    if $EGR init "$WORKSPACE" ${INIT_ARGS[*]:-} >/dev/null 2>&1; then
+    if init_err="$($EGR init "$WORKSPACE" ${INIT_ARGS[*]:-} 2>&1)"; then
         CREATED=1
         ok "workspace inicializado"
     else
         fail "não consegui inicializar o workspace em $WORKSPACE"
+        [ -n "${init_err:-}" ] && printf '%s\n' "$init_err" | tail -3 | sed 's/^/    /'
         exit 1
     fi
 else
