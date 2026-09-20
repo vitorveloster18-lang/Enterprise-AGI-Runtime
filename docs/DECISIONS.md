@@ -1046,3 +1046,36 @@ nunca é vetorizado e nunca entra no contexto do modelo.
 de bytes, e o retrieval continua sendo sobre texto (auditável). O custo é honesto:
 não há visão nem transcrição local em V1 — a qualidade da busca depende da
 legenda que alguém escreveu.
+
+---
+
+## ADR-059 · Interface de terminal: um cliente do Runtime, não um atalho
+
+**Status:** aceita.
+
+**Contexto:** a CLI é completa mas exige decorar comando e flag; editar o
+`egr.yaml` na mão é onde a configuração quebra. Ao mesmo tempo, uma interface
+“espertinha” é o lugar clássico onde o Runtime perde a palavra: botão que executa
+direto, tela que aprova sozinha, campo que grava segredo.
+
+**Decisão:** o pacote `src/egr/tui` é **mais um cliente**, ao lado da CLI e da
+API — o mesmo contrato de “CLIENTE → RUNTIME → POLICY → TOOL”. Concretamente:
+
+- o catálogo de comandos é lido do próprio app Typer, então a interface nunca
+  fica defasada da CLI, e a execução passa pela CLI (sem reimplementar nada);
+- o formulário de configuração é gerado de um esquema declarado por campo, com
+  tipo e validação; nada é gravado sem passar por `EGRConfig` (pydantic);
+- provedor de modelo recebe `api_key_env` — o **nome** da variável. A chave nunca
+  é digitada nem gravada no yaml;
+- aprovação abre uma tela com o contexto e espera o humano: não há autoaprovação
+  e o agente não decide por si;
+- `serve` e `tui` ficam fora da paleta: abrir servidor ou outra interface por
+  dentro da interface é como derrubar o painel.
+
+O `textual` é um **extra opcional** (`pip install ".[tui]"`): o núcleo continua
+instalável sem ele, e o script de partida tenta instalá-lo avisando se falhar.
+
+**Consequências:** dá para operar o Runtime inteiro pelo teclado, inclusive
+configurar, sem abrir código nem servidor. O custo é uma dependência a mais
+(só em quem pede a interface) e a obrigação de manter o esquema de campos em
+sincronia com o `EGRConfig` — o que os testes cobrem gravando e relendo.

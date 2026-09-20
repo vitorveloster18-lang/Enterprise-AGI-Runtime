@@ -46,6 +46,29 @@ roda o `doctor`, verifica a cadeia de auditoria (`egr audit verify`) e executa
 uma task pelo caminho governado. Falhas de workspace novo (sem contêiner, sem
 chave mestra, sem identidades) aparecem como esperadas — o resto é problema.
 
+### 1.2 Interface completa no terminal
+
+Além do menu, existe uma interface de painel único — objetivo em linguagem
+natural, todos os comandos e toda a configuração, sem servidor:
+
+```bash
+egr tui                    # ou: opção 13 do menu do start.sh
+```
+
+```
+  ctrl+p  paleta com todos os comandos da CLI (170), com busca
+  ctrl+s  configuração do workspace: modelo, orçamento, memória, segurança,
+          sandbox, ferramentas, runtime, promoção, coordenação, canais
+  ctrl+m  provedores de modelo (a chave entra como nome de variável de ambiente)
+  ctrl+a  aprovações pendentes — o humano decide na tela
+  ctrl+d  doctor · ctrl+r status · ctrl+y auditoria · ctrl+t auto-teste
+  ctrl+h  ajuda · ctrl+l limpar
+  /       comando direto: /task list, /memory search "contrato"
+```
+
+Escrever um objetivo e dar Enter cria a task pelo caminho governado: política,
+ferramenta e trilha — a interface nunca executa por conta própria.
+
 ## 2. Primeiro milestone (60 segundos)
 
 ```bash
@@ -148,7 +171,7 @@ CLI → Task → Agent → (Memory + Model) → Plan → Action Proposal
 | Auditoria | `egr/audit` | Ledger append-only com hash encadeado + verificação |
 | Segurança | `egr/security` | Redação de segredos, classificação e sanitização de dados (CPF/CNPJ/e-mail/cartão) |
 | Interface | `egr/cli`, `egr/api` | CLI completo + API FastAPI + console web |
-| Testes | `tests/` | 594 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, multimodal e limpeza de PII, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, coordenação negociada e gatilhos de banco, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
+| Testes | `tests/` | 607 testes (política, ferramentas, fluxo de task, auditoria, memória, gateway, custo/orçamento, sandbox, git/e-mail/browser/MCP, identidade/RBAC, cofre, chaves, memória semântica/híbrida, multimodal e limpeza de PII, interface de terminal, orquestração DAG/cron/webhook, propostas/AST/prova em sandbox, avaliação/métricas/regressão, laboratório de qualidade e carga, release/gates/versão/rollback/assinatura e quórum, coordenação negociada e gatilhos de banco, canais/pareamento/ritmo/redação, integrações REST/GraphQL/SQL/webhook, packs verticais, fila de saída, worker da fila, atualização de pack e anexos/botões dos canais) |
 
 ## 6. Comandos principais
 

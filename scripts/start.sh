@@ -81,8 +81,9 @@ else
         # pip_install tenta normal e, se o ambiente for protegido (PEP 668 no
         # Debian/Ubuntu novos), tenta de novo liberando o prefix
         pip_install() {
-            "$1" -m pip install --quiet "$2" "$3" >/dev/null 2>&1 \
-                || "$1" -m pip install --quiet --break-system-packages "$2" "$3" >/dev/null 2>&1
+            local py="$1"; shift
+            "$py" -m pip install --quiet "$@" >/dev/null 2>&1 \
+                || "$py" -m pip install --quiet --break-system-packages "$@" >/dev/null 2>&1
         }
 
         # -r requirements.txt traz as dependências; `pip install -e .` é o que
@@ -123,6 +124,19 @@ else
                 printf '    %s -m pip install -r requirements.txt\n' "$PY"
                 exit 1
             fi
+        fi
+
+        # a interface completa (TUI) depende do textual: tenta instalar, e se não
+        # der a opção 13 explica o que fazer em vez de sumir do menu
+        if "$PY" -c "import textual" >/dev/null 2>&1; then
+            TUI_OK=1
+        elif pip_install "$PY" textual; then
+            TUI_OK=1
+            ok "interface completa disponível (opção 13)"
+        else
+            TUI_OK=0
+            warn "sem o pacote 'textual': a interface completa fica indisponível"
+            printf '     instale depois com: %s -m pip install textual\n' "$PY"
         fi
     fi
 fi
@@ -257,6 +271,7 @@ show_menu() {
   7) promoção (release)   8) auditoria: verificar
   9) mídia e PII (5b)    10) coordenação e gatilhos (6b)
  11) modelos e custo     12) ver o log de auditoria
+ 13) interface completa (estilo Claude Code / opencode)
   s) shell egr           t) repetir o auto-teste
   0) sair
 MENU
@@ -280,6 +295,12 @@ while true; do
         10) egr db triggers; egr db drain ;;
         11) egr model usage; egr model list ;;
         12) egr audit list --limit 20 ;;
+        13) if [ "${TUI_OK:-0}" = "1" ] || "$PY" -c "import textual" >/dev/null 2>&1; then
+                egr tui
+            else
+                warn "falta o pacote 'textual' (a interface completa)"
+                printf '     instale com: %s -m pip install ".[tui]"\n' "$PY"
+            fi ;;
         s|S) printf '%s\n' "digite comandos sem o prefixo 'egr' (ex.: status); 'voltar' para o menu"
              while true; do
                  printf '%segr>%s ' "$c_green" "$c_reset"

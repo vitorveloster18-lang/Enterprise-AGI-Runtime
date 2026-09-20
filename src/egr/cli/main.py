@@ -27,6 +27,7 @@ from .commands import (
     security,
     tasks,
     tools,
+    tui,
     workflows,
     workspace,
 )
@@ -46,6 +47,7 @@ app.command(name="init", help="Cria um workspace EGR")(workspace.init)
 app.command(name="status", help="Estado do Runtime")(workspace.status)
 app.command(name="doctor", help="Diagnóstico de saúde")(workspace.doctor)
 app.command(name="serve", help="Sobe a API local + console")(workspace.serve)
+app.command(name="tui", help="Interface completa no terminal (sem servidor)")(tui.ui)
 
 # sub-applications
 app.add_typer(tasks.app, name="task")
