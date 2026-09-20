@@ -78,22 +78,51 @@ else
         warn "sem venv em $REPO/.venv — usando o python do sistema (--no-install)"
     else
         info "preparando o ambiente (primeira vez demora um pouco)…"
+        # pip_install tenta normal e, se o ambiente for protegido (PEP 668 no
+        # Debian/Ubuntu novos), tenta de novo liberando o prefix
+        pip_install() {
+            "$1" -m pip install --quiet "$2" "$3" >/dev/null 2>&1 \
+                || "$1" -m pip install --quiet --break-system-packages "$2" "$3" >/dev/null 2>&1
+        }
+
         # -r requirements.txt traz as dependências; `pip install -e .` é o que
         # cria o comando `egr` de verdade (instalar só as deps deixa o binário
         # de fora — e aí o `egr init` abaixo falha sem dizer por quê)
-        if "$PY" -m venv "$REPO/.venv" >/dev/null 2>&1 \
-           && "$REPO/.venv/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 \
-           && "$REPO/.venv/bin/python" -m pip install --quiet -r "$REPO/requirements.txt" >/dev/null 2>&1 \
-           && "$REPO/.venv/bin/python" -m pip install --quiet -e "$REPO" >/dev/null 2>&1 \
-           && [ -x "$REPO/.venv/bin/egr" ]; then
-            EGR="$REPO/.venv/bin/egr"
+        EGR=""
+        if [ -z "${EGR_NO_VENV:-}" ] && [ ! -e "$REPO/.venv" ] \
+           && "$PY" -m venv "$REPO/.venv" >/dev/null 2>&1 \
+           && [ -x "$REPO/.venv/bin/python" ] \
+           && pip_install "$REPO/.venv/bin/python" -r "$REPO/requirements.txt" \
+           && pip_install "$REPO/.venv/bin/python" -e "$REPO" \
+           && "$REPO/.venv/bin/python" -c "import egr" >/dev/null 2>&1; then
+            if [ -x "$REPO/.venv/bin/egr" ]; then
+                EGR="$REPO/.venv/bin/egr"
+            else
+                EGR="$REPO/.venv/bin/python -m egr"
+            fi
             ok "ambiente criado em $REPO/.venv"
-        elif [ -x "$REPO/.venv/bin/python" ] && "$REPO/.venv/bin/python" -c "import egr" >/dev/null 2>&1; then
-            EGR="$REPO/.venv/bin/python -m egr"
-            warn "venv criada, mas sem o comando `egr`; usando o módulo direto"
-        else
-            EGR="$PY -m egr"
-            warn "não consegui preparar a venv (sem rede?); tentando o python do sistema"
+        fi
+
+        # Termux costuma vir sem ensurepip: a venv nasce sem pip e nada instala.
+        # Nesse caso (ou se a venv falhar por qualquer motivo) instala direto no
+        # python do prefix — que no Termux é do próprio app, então não tem risco
+        if [ -z "$EGR" ]; then
+            [ -d "$REPO/.venv" ] && rm -rf "$REPO/.venv"
+            if pip_install "$PY" -r "$REPO/requirements.txt" \
+               && pip_install "$PY" -e "$REPO" \
+               && "$PY" -c "import egr" >/dev/null 2>&1; then
+                if p=$(command -v egr 2>/dev/null); then
+                    EGR="$p"
+                else
+                    EGR="$PY -m egr"
+                fi
+                ok "dependências instaladas no python do sistema ($PY)"
+            else
+                fail "não consegui instalar as dependências"
+                printf '  tenta na mão, que aí aparece o erro:\n'
+                printf '    %s -m pip install -r requirements.txt\n' "$PY"
+                exit 1
+            fi
         fi
     fi
 fi
