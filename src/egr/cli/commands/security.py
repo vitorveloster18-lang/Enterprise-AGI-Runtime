@@ -107,6 +107,7 @@ def identity_add(
     name: str = typer.Option("", "--name", "-n"),
     kind: str = typer.Option("human", "--kind", "-k", help="human | agent | service"),
     roles: list[str] = typer.Option(None, "--roles", "-r", help="Papel (repetível ou separado por vírgula)"),
+    areas: list[str] = typer.Option(None, "--areas", "-a", help="Áreas (repetível ou separado por vírgula)"),
     email: str = typer.Option(None, "--email"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
 ):
@@ -119,6 +120,7 @@ def identity_add(
             name=name,
             kind=kind,
             roles=_split_roles(roles),
+            areas=_split_roles(areas),
             email=email,
             actor="cli",
         )
@@ -127,6 +129,7 @@ def identity_add(
         raise typer.Exit(code=1) from exc
     success(f"principal '{principal.id}' criado ({principal.kind})")
     info(f"papéis: {', '.join(principal.roles)}")
+    info(f"áreas: {', '.join(principal.areas) or 'todas'}")
     info(f"próximo passo: egr identity token {principal.id}")
 
 
@@ -188,6 +191,7 @@ def identity_show(
             "status": str(principal.status),
             "e-mail": principal.email or "-",
             "papéis": ", ".join(principal.roles),
+            "áreas": ", ".join(principal.areas) or "todas",
             "permissões": ", ".join(principal.permissions),
             "último acesso": principal.last_seen_at.isoformat() if principal.last_seen_at else "-",
         },
@@ -209,6 +213,23 @@ def identity_roles(
         error(str(exc))
         raise typer.Exit(code=1) from exc
     success(f"papéis de '{principal.id}': {', '.join(principal.roles)}")
+
+
+@identity_app.command(name="areas")
+def identity_areas(
+    principal_id: str = typer.Argument(...),
+    areas: list[str] = typer.Option(..., "--areas", "-a"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Define as áreas de uma identidade (vazio = todas)."""
+
+    runtime = get_runtime(workspace)
+    try:
+        principal = runtime.identity.set_areas(principal_id, _split_roles(areas), actor="cli")
+    except (AuthorizationError, AuthenticationError) as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    success(f"áreas de '{principal.id}': {', '.join(principal.areas) or 'todas'}")
 
 
 @identity_app.command(name="disable")

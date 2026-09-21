@@ -10,6 +10,7 @@ requires:
   min_environment: development
 agents:
   - id: support-agent
+    area: support
     name: Support Agent
     version: 1.0.0
     objective: Resolver chamados com contexto, limite de reembolso e resposta auditada

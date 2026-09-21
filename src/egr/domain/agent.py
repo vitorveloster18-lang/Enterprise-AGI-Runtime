@@ -29,6 +29,7 @@ class AgentPermissions(BaseModel):
 
 class AgentSpec(BaseModel):
     id: str
+    area: str | None = None  # área da empresa (finance, hr…); None = global
     name: str | None = None
     version: str = "1.0.0"
     objective: str = ""

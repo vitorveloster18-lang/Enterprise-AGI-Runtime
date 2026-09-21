@@ -10,6 +10,7 @@ requires:
   min_environment: development
 agents:
   - id: marketing-agent
+    area: marketing
     name: Marketing Agent
     version: 1.0.0
     objective: Produzir campanhas e conteúdo coerentes com a marca e o orçamento

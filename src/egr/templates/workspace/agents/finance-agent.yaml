@@ -1,4 +1,5 @@
 id: finance-agent
+area: finance
 name: Finance Agent
 version: 1.0.0
 objective: Executar operacoes financeiras com aprovacao humana acima do limite

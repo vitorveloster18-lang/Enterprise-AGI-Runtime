@@ -1108,3 +1108,25 @@ mantém o `resume` funcionando.
 configuração, e o overseer continua existindo como exceção explícita e
 auditada. O que falta (fatia seguinte): o mesmo escopo para **pessoas** —
 papéis com áreas no RBAC e identidade resolvida nos caminhos CLI/API.
+
+## ADR-061 · Áreas para pessoas: quem decide o quê, por setor
+
+A fatia 1 isolou a memória entre agentes. Falta o outro lado: gente. O
+gerente do financeiro não pode aprovar nada do RH, e o diretor (overseer)
+pode tudo — com trilha.
+
+**Decisão:** `Principal.areas` (vazio = todas, `"*"` = overseer) e
+`AgentSpec.area` (None = global). `rbac.in_area` centraliza a regra, com
+bypass para o papel `admin`. A imposição entra em `_authorize_decision` —
+o funil único de `approve`/`deny` — então CLI, TUI e API passam pela mesma
+parede. Vale com ou sem `identity_required`, sempre que o decisor for um
+principal conhecido; decisor desconhecido mantém o comportamento atual
+(marcado como não verificado). `memory search|write` ganham `--by` com o
+mesmo escopo, e `identity add --areas` + `identity areas` o administram.
+
+**Consequências:** packs e templates declaram a área de cada agente, então
+instalação nova e pack instalado já nascem com escopo; linhas antigas sem
+área seguem globais (compatibilidade). A tela de aprovações da TUI decide
+como `human` não verificado até ganhar campo de token — documentado, não
+esquecido. O escopo de *submissão* (quem pode taskear cada área) fica para
+a fatia do orquestrador.

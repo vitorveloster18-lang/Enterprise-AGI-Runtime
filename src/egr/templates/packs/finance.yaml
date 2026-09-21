@@ -11,6 +11,7 @@ requires:
   min_environment: development
 agents:
   - id: cashflow-agent
+    area: finance
     name: Cashflow Agent
     version: 1.0.0
     objective: Projetar fluxo de caixa, conciliar extratos e apontar riscos de liquidez

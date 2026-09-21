@@ -46,7 +46,7 @@ from ..policies.engine import PolicyContext
 from ..release.manager import ReleaseManager
 from ..security.identity import IdentityService, PrincipalKind
 from ..security.keystore import MasterKey, MasterKeyStore
-from ..security.rbac import APPROVAL_DECIDE, PERMISSIONS, ROLES, has_permission, role_satisfies
+from ..security.rbac import APPROVAL_DECIDE, PERMISSIONS, ROLES, has_permission, in_area, role_satisfies
 from ..security.redaction import redact_mapping
 from ..security.vault import SecretVault
 from ..storage import Database, apply_migrations, migration_status
@@ -134,6 +134,7 @@ def default_agents() -> list[AgentSpec]:
             name="Finance Agent",
             objective="Executar operacoes financeiras com aprovacao humana acima do limite",
             model=ModelSpec(capability="reasoning"),
+            area="finance",
             memory=["finance"],
             permissions=AgentPermissions(
                 tools=["filesystem.*", "database.query"], namespaces=["finance"]
@@ -646,6 +647,12 @@ class Runtime:
             )
             raise AuthorizationError(reason)
 
+        if principal is not None:
+            # Limite por área (fatia 2): vale com ou sem identidade exigida,
+            # sempre que o decisor for um principal conhecido. Desconhecido
+            # mantém o comportamento atual (marcado como não verificado).
+            self._check_decision_area(approval, principal, deny)
+
         if not security.identity_required:
             # Sem exigência de identidade o Runtime continua funcionando, mas a
             # auditoria fica explicitamente marcada como não verificada.
@@ -681,6 +688,26 @@ class Runtime:
                 f"mas a política exige '{approval.required_role}'"
             )
         return principal.id
+
+    def _task_area(self, task_id: str | None) -> str | None:
+        """Área da task = área do agente executor. Sem agente/área = global."""
+
+        if not task_id:
+            return None
+        task = self.tasks.get(task_id)
+        if task is None or not task.agent_id:
+            return None
+        agent = self.agents.get(task.agent_id)
+        if agent is None:
+            agent = self.agent_repository.get(task.agent_id)
+        return getattr(agent, "area", None) if agent is not None else None
+
+    def _check_decision_area(self, approval, principal, deny) -> None:
+        """O gerente do financeiro não decide pelo RH (fatia 2)."""
+
+        area = self._task_area(approval.task_id)
+        if not in_area(principal, area):
+            deny(f"'{principal.id}' não alcança a área '{area}'")
 
     def approve(
         self,

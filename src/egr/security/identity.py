@@ -52,6 +52,7 @@ class Principal(BaseModel):
     name: str = ""
     kind: PrincipalKind = PrincipalKind.HUMAN
     roles: list[str] = Field(default_factory=lambda: [DEFAULT_ROLE])
+    areas: list[str] = Field(default_factory=list)  # áreas alcançadas; vazio = todas
     status: PrincipalStatus = PrincipalStatus.ACTIVE
     email: str | None = None
     metadata: dict = Field(default_factory=dict)
@@ -73,6 +74,7 @@ class Principal(BaseModel):
             "name": self.name or self.id,
             "kind": str(self.kind),
             "roles": sorted(self.roles),
+            "areas": sorted(self.areas),
             "status": str(self.status),
             "permissions": self.permissions,
         }
@@ -153,6 +155,7 @@ class IdentityService:
         name: str = "",
         kind: str | PrincipalKind = PrincipalKind.HUMAN,
         roles: list[str] | None = None,
+        areas: list[str] | None = None,
         email: str | None = None,
         actor: str = "cli",
         metadata: dict | None = None,
@@ -167,6 +170,7 @@ class IdentityService:
             name=name or principal_id,
             kind=PrincipalKind(kind),
             roles=sorted(set(roles or [DEFAULT_ROLE])),
+            areas=sorted(set(areas or [])),
             email=email,
             metadata=metadata or {},
         )
@@ -187,6 +191,19 @@ class IdentityService:
 
     def count(self) -> int:
         return self.repository.count_principals()
+
+    def set_areas(self, principal_id: str, areas: list[str], *, actor: str = "cli") -> Principal:
+        principal = self._require_principal(principal_id)
+        principal.areas = sorted(set(areas))
+        principal.updated_at = utcnow()
+        self.repository.save_principal(principal)
+        self._record(
+            EventType.IDENTITY_UPDATED,
+            actor=actor,
+            principal=principal,
+            payload={"areas": principal.areas},
+        )
+        return principal
 
     def set_roles(self, principal_id: str, roles: list[str], *, actor: str = "cli") -> Principal:
         principal = self._require_principal(principal_id)

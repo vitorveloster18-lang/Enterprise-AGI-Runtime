@@ -167,6 +167,24 @@ def role_satisfies(held: list[str] | None, required: str | None) -> bool:
     return required in expand_roles(held)
 
 
+def in_area(principal_or_roles: Any, area: str | None) -> bool:
+    """Limite de acesso por área (fatia 2): quem alcança o quê.
+
+    Recurso sem área = global (todos passam). Principal sem grants = tudo
+    (compatibilidade com identidades antigas). `"*"` e o papel `admin` =
+    overseer (todas as áreas).
+    """
+
+    if not area:
+        return True
+    areas = list(getattr(principal_or_roles, "areas", None) or [])
+    if not areas or "*" in areas:
+        return True
+    if "admin" in expand_roles(_roles_of(principal_or_roles)):
+        return True
+    return area in areas
+
+
 def describe() -> dict:
     return {
         "roles": [
@@ -220,6 +238,7 @@ __all__ = [
     "describe",
     "expand_roles",
     "has_permission",
+    "in_area",
     "permissions_for",
     "require",
     "role_satisfies",

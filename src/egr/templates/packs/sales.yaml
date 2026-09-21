@@ -10,6 +10,7 @@ requires:
   min_environment: development
 agents:
   - id: sales-agent
+    area: sales
     name: Sales Agent
     version: 1.0.0
     objective: Qualificar oportunidades, estimar receita e sugerir próximos passos

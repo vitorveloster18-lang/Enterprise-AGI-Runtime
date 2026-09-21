@@ -10,6 +10,7 @@ requires:
   min_environment: development
 agents:
   - id: hr-agent
+    area: hr
     name: HR Agent
     version: 1.0.0
     objective: Conduzir admissão, férias e movimentações sem expor dado sensível

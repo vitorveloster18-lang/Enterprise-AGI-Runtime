@@ -10,6 +10,7 @@ requires:
   min_environment: development
 agents:
   - id: operations-agent
+    area: operations
     name: Operations Agent
     version: 1.0.0
     objective: Monitorar estoque, sugerir reposição e apontar riscos de ruptura

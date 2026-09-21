@@ -10,6 +10,7 @@ from pathlib import Path
 
 import typer
 
+from ...core.errors import AuthorizationError
 from ...domain.enums import MemoryKind
 from ..context import get_runtime
 from ..formatting import error, info, json_output, kv, success, table, warning
@@ -17,6 +18,18 @@ from ..formatting import error, info, json_output, kv, success, table, warning
 app = typer.Typer(help="Memória: knowledge · operational · episodic · semantic")
 
 KINDS = [kind.value for kind in MemoryKind]
+
+
+def _scope_of(runtime, by: str | None) -> list[str] | None:
+    """Escopo de áreas do principal (--by); None = sem restrição."""
+
+    if not by:
+        return None
+    principal = runtime.identity.resolve(by)
+    if principal is None:
+        error(f"principal '{by}' não encontrado")
+        raise typer.Exit(code=1)
+    return principal.areas or None
 
 
 @app.command(name="search")
@@ -28,21 +41,28 @@ def search(
     limit: int = typer.Option(5, "--limit", "-l"),
     archived: bool = typer.Option(False, "--archived", help="Incluir registros arquivados"),
     explain: bool = typer.Option(False, "--explain", help="Mostrar a fusão léxico/semântica"),
+    by: str = typer.Option(None, "--by", help="Id do principal (aplica as áreas dele)"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
     as_json: bool = typer.Option(False, "--json"),
 ):
     """Busca na memória da empresa (híbrido por padrão)."""
 
     runtime = get_runtime(workspace)
-    records = runtime.memory.search(
-        query,
-        namespaces=[namespace] if namespace else None,
-        kinds=[kind] if kind else None,
-        limit=limit,
-        mode=mode or None,
-        include_archived=archived,
-        explain=explain,
-    )
+    try:
+        records = runtime.memory.search(
+            query,
+            namespaces=[namespace] if namespace else None,
+            kinds=[kind] if kind else None,
+            limit=limit,
+            mode=mode or None,
+            include_archived=archived,
+            explain=explain,
+            allowed_namespaces=_scope_of(runtime, by),
+            actor=by,
+        )
+    except AuthorizationError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
     if as_json:
         json_output([record.model_dump(mode="json") for record in records])
         return
@@ -79,6 +99,7 @@ def write(
     namespace: str = typer.Option("default", "--namespace", "-n"),
     tags: str = typer.Option("", "--tags", "-t", help="Separadas por vírgula"),
     importance: float = typer.Option(None, "--importance", "-i", help="0..1 (padrão: inferido)"),
+    by: str = typer.Option(None, "--by", help="Id do principal (aplica as áreas dele)"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
 ):
     """Escreve um registro de memória (normalmente feito pelo Runtime)."""
@@ -87,14 +108,20 @@ def write(
         error(f"tipo inválido: {kind} (válidos: {', '.join(KINDS)})")
         raise typer.Exit(code=1)
     runtime = get_runtime(workspace)
-    record = runtime.memory.write(
-        content,
-        kind=MemoryKind(kind),
-        namespace=namespace,
-        tags=[item.strip() for item in tags.split(",") if item.strip()],
-        source="cli",
-        importance=importance,
-    )
+    try:
+        record = runtime.memory.write(
+            content,
+            kind=MemoryKind(kind),
+            namespace=namespace,
+            tags=[item.strip() for item in tags.split(",") if item.strip()],
+            source="cli",
+            importance=importance,
+            allowed_namespaces=_scope_of(runtime, by),
+            agent_id=by,
+        )
+    except AuthorizationError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
     success(f"memória registrada: {record.id} (importância {record.importance})")
     removed = record.metadata.get("pii_removido") or {}
     if removed:
