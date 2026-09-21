@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from ..core.errors import BudgetExceeded
+from ..core.errors import AuthorizationError, BudgetExceeded
 from ..core.ids import new_id
 from ..core.timeutil import utcnow
 from ..domain.agent import AgentSpec
@@ -36,6 +36,7 @@ class AgentEngine:
         records, memory_context = self.runtime.memory.recall(
             task.objective,
             namespaces=agent.memory or ["default"],
+            allowed_namespaces=agent.permissions.namespaces or None,
             limit=5,
             agent_id=agent.id,
             task_id=task.id,
@@ -152,6 +153,10 @@ class AgentEngine:
                 plan = self.plan(task, agent)
             except BudgetExceeded as exc:
                 return self._fail(task, agent, str(exc), error_type=EventType.MODEL_BUDGET_BLOCKED)
+            except AuthorizationError as exc:
+                return self._fail(
+                    task, agent, f"negado: {exc}", error_type=EventType.AUTHORIZATION_DENIED
+                )
             task.context["plan"] = plan.model_dump(mode="json")
             task.result.plan = plan.model_dump(mode="json")
             task.result.model = f"{plan.provider}:{plan.model}" if plan.model else (plan.provider or "-")
@@ -448,17 +453,38 @@ class AgentEngine:
         if not result.ok:
             return
         summary = f"{step.tool}: {self._preview(result.output, limit=400)}"
+        try:
+            namespace = self._scoped_namespace(agent)
+        except AuthorizationError:
+            return  # negação já está na trilha; memória é auxiliar, a task continua
         self.runtime.memory.write(
             content=summary,
             kind=MemoryKind.OPERATIONAL,
-            namespace=(agent.memory or ["default"])[0],
+            namespace=namespace,
             summary=f"[{task.id}] {step.tool}",
             tags=[step.tool, str(task.environment)],
             source="tool",
             task_id=task.id,
             agent_id=agent.id,
             environment=str(task.environment),
+            allowed_namespaces=agent.permissions.namespaces or None,
         )
+
+    def _scoped_namespace(self, agent: AgentSpec) -> str:
+        """Namespace de escrita do agente, já validado contra o escopo da área."""
+
+        namespace = (agent.memory or ["default"])[0]
+        allowed = agent.permissions.namespaces or None
+        if allowed and "*" not in allowed and namespace not in allowed:
+            self.runtime.audit.record(
+                EventType.AUTHORIZATION_DENIED,
+                actor=agent.id,
+                agent_id=agent.id,
+                environment=str(agent.environment),
+                payload={"op": "memory.write", "requested": [namespace], "allowed": list(allowed)},
+            )
+            raise AuthorizationError(f"namespace(s) fora do escopo: {namespace}")
+        return namespace
 
     def _finish(self, task: Task, agent: AgentSpec, plan: Plan, started: float) -> Task:
         runtime = self.runtime
@@ -486,6 +512,10 @@ class AgentEngine:
 
         runtime.tasks.save(task)
 
+        try:
+            namespace = self._scoped_namespace(agent)
+        except AuthorizationError:
+            return task  # negação já está na trilha; o episódio não é essencial
         runtime.memory.write(
             content=(
                 f"Objetivo: {task.objective}\n"
@@ -495,13 +525,14 @@ class AgentEngine:
                 f"Artefatos: {', '.join(task.result.artifacts) or '-'}"
             ),
             kind=MemoryKind.EPISODIC,
-            namespace=(agent.memory or ["default"])[0],
+            namespace=namespace,
             summary=f"[episodio] {task.objective[:120]}",
             tags=["task", str(task.status), str(task.environment)],
             source="runtime",
             task_id=task.id,
             agent_id=agent.id,
             environment=str(task.environment),
+            allowed_namespaces=agent.permissions.namespaces or None,
         )
 
         runtime.audit.record(

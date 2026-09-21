@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.config import MemoryConfig
+from ..core.errors import AuthorizationError
 from ..core.ids import new_id
 from ..core.timeutil import utcnow
 from ..domain.enums import EventType, MemoryKind
@@ -50,6 +51,45 @@ class MemoryService:
         #: lacuna 5b: o binário fica em artifacts/media, fora do banco
         self.media = MediaStore(workspace or Path.cwd(), config=self.config)
 
+    def _resolve_scope(
+        self,
+        requested: list[str] | None,
+        allowed: list[str] | None,
+        *,
+        op: str,
+        actor: str | None = None,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        environment: str | None = None,
+    ) -> list[str] | None:
+        """Fecha o escopo de namespaces por área (limite de acesso por área).
+
+        Sem escopo declarado (None/vazio) = sem restrição, como `allows_tool`
+        faz com ferramentas. `"*"` = overseer (todas as áreas). Busca sem
+        namespaces estreita para o escopo; fora do escopo nega com trilha.
+        """
+
+        if not allowed or "*" in allowed:
+            return requested
+        if requested is None:
+            return list(allowed)
+        outside = [ns for ns in requested if ns not in allowed]
+        if outside:
+            if self.audit:
+                self.audit.record(
+                    EventType.AUTHORIZATION_DENIED,
+                    actor=actor or agent_id or "runtime",
+                    task_id=task_id,
+                    agent_id=agent_id,
+                    environment=environment or "development",
+                    payload={"op": op, "requested": list(requested), "allowed": list(allowed)},
+                )
+            raise AuthorizationError(
+                f"namespace(s) fora do escopo: {', '.join(outside)} "
+                f"(permitidos: {', '.join(allowed)})"
+            )
+        return requested
+
     # ---- write -------------------------------------------------------
     def write(
         self,
@@ -65,12 +105,23 @@ class MemoryService:
         metadata: dict | None = None,
         environment: str | None = None,
         importance: float | None = None,
+        allowed_namespaces: list[str] | None = None,
     ) -> MemoryRecord:
         resolved_kind = MemoryKind(kind) if isinstance(kind, str) else kind
+        namespace = namespace or self.default_namespace
+        self._resolve_scope(
+            [namespace],
+            allowed_namespaces,
+            op="memory.write",
+            actor=agent_id or source,
+            task_id=task_id,
+            agent_id=agent_id,
+            environment=environment,
+        )
         content, summary_given, removed = self._scrub(content, summary)
         record = MemoryRecord(
             id=new_id("memory"),
-            namespace=namespace or self.default_namespace,
+            namespace=namespace,
             kind=resolved_kind,
             content=content,
             summary=summary_given or content[:280],
@@ -250,8 +301,23 @@ class MemoryService:
         include_archived: bool = False,
         reinforce_hits: bool = True,
         explain: bool = False,
+        allowed_namespaces: list[str] | None = None,
+        actor: str | None = None,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        environment: str | None = None,
     ) -> list[MemoryRecord]:
         """Busca híbrida (padrão), léxica ou semântica."""
+
+        namespaces = self._resolve_scope(
+            namespaces,
+            allowed_namespaces,
+            op="memory.search",
+            actor=actor,
+            task_id=task_id,
+            agent_id=agent_id,
+            environment=environment,
+        )
 
         strategy = mode or self.config.retrieval
         multiplier = max(1, self.config.candidate_multiplier)
@@ -307,10 +373,21 @@ class MemoryService:
         task_id: str | None = None,
         environment: str | None = None,
         mode: str | None = None,
+        allowed_namespaces: list[str] | None = None,
     ) -> tuple[list[MemoryRecord], str]:
         """Recall memory and return (records, rendered context for the prompt)."""
 
-        records = self.search(query, namespaces=namespaces, limit=limit, mode=mode) if (
+        records = self.search(
+            query,
+            namespaces=namespaces,
+            limit=limit,
+            mode=mode,
+            allowed_namespaces=allowed_namespaces,
+            actor=agent_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            environment=environment,
+        ) if (
             self.config.auto_recall
         ) else []
         if self.audit and records:

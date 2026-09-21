@@ -294,7 +294,7 @@ while true; do
         9) egr memory media; egr memory stats ;;
         10) egr db triggers; egr db drain ;;
         11) egr model usage; egr model list ;;
-        12) egr audit list --limit 20 ;;
+        12) egr audit show --limit 20 ;;
         13) if [ "${TUI_OK:-0}" = "1" ] || "$PY" -c "import textual" >/dev/null 2>&1; then
                 egr tui
             else

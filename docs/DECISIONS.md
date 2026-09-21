@@ -1079,3 +1079,32 @@ instalável sem ele, e o script de partida tenta instalá-lo avisando se falhar.
 configurar, sem abrir código nem servidor. O custo é uma dependência a mais
 (só em quem pede a interface) e a obrigação de manter o esquema de campos em
 sincronia com o `EGRConfig` — o que os testes cobrem gravando e relendo.
+
+## ADR-060 · Limite de acesso por área: namespace declarado é namespace imposto
+
+Os packs departamentais (contábil, financeiro, RH…) sempre declararam
+`permissions.namespaces`, e os agentes built-in também — mas nada impunha
+isso em execução: qualquer agente lia e escrevia em qualquer namespace. Para
+uma empresa com vários setores, "organizado por área" sem "isolado por área"
+não fecha.
+
+**Decisão:** o escopo passa a ser imposto no serviço de memória
+(`MemoryService._resolve_scope`), chamado por escrita, busca e recall:
+
+- sem escopo declarado (None/vazio) = sem restrição — a mesma convenção do
+  `allows_tool` para ferramentas, então nada do que existe quebra;
+- `"*"` = overseer (todas as áreas);
+- busca sem namespaces estreita para o escopo em vez de negar;
+- fora do escopo nega com `AuthorizationError` **e** registra
+  `security.authorization_denied` na trilha, com pedido × permitido.
+
+No motor: o recall do planejamento recebe o escopo do agente, então um
+agente fora do escopo falha **fechado** (task FAILED com motivo claro) antes
+de qualquer chamada ao modelo. As escritas auxiliares (passo operacional e
+episódio final) pulam com trilha em vez de derrubar a task — o que também
+mantém o `resume` funcionando.
+
+**Consequências:** o financeiro não lê o RH nem por acidente de
+configuração, e o overseer continua existindo como exceção explícita e
+auditada. O que falta (fatia seguinte): o mesmo escopo para **pessoas** —
+papéis com áreas no RBAC e identidade resolvida nos caminhos CLI/API.
