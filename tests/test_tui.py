@@ -186,3 +186,96 @@ def test_objetivo_em_linguagem_natural_vira_task_governada(workspace):
     finished, completed = asyncio.run(run())
     assert finished
     assert completed >= 1
+
+
+# ── provedores (regressão do DuplicateKey visto no Termux) ────────────────────
+providers_screen = pytest.importorskip("egr.tui.screens.providers", reason="textual não instalado")
+ProviderForm = providers_screen.ProviderForm
+DataTable = textual_widgets.DataTable
+
+
+def _google(name="google"):
+    return {
+        "name": name,
+        "type": "openai_compat",
+        "enabled": True,
+        "model": "gemini-2.0-flash",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "api_key_env": "GOOGLE_API_KEY",
+        "external": True,
+        "priority": 100,
+        "capabilities": ["reasoning", "chat"],
+        "pricing": {"currency": "USD", "input_per_1m": 0.0, "output_per_1m": 0.0, "per_call": 0.0},
+    }
+
+
+def test_nome_de_variavel_recusa_texto_fora_do_formato():
+    assert providers_screen.valid_env_name("GOOGLE_API_KEY")
+    assert providers_screen.valid_env_name("_X9")
+    assert not providers_screen.valid_env_name("GOOGLE_API_KEY (gemini-3.5-flash)")
+    assert not providers_screen.valid_env_name("minha chave")
+    assert not providers_screen.valid_env_name("9LIVES")
+
+
+def test_tabela_de_provedores_aguenta_nomes_repetidos(workspace):
+    """Dois 'google' + refresh duplo: era o DuplicateKey (a chave é o índice)."""
+
+    async def run() -> int:
+        app = _app(workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+m")
+            await pilot.pause(0.5)
+            screen = app.screen
+            screen.providers.append(_google("google"))
+            screen.providers.append(_google("google"))
+            screen._refresh()
+            screen._refresh()
+            return screen.query_one("#table", DataTable).row_count
+
+    assert asyncio.run(run()) >= 2
+
+
+def test_nome_repetido_reabre_o_formulario_em_vez_de_duplicar(workspace):
+    async def run():
+        app = _app(workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+m")
+            await pilot.pause(0.5)
+            screen = app.screen
+            before = len(screen.providers)
+            screen._added(_google("google"))
+            after_first = len(screen.providers)
+            screen._added(_google("google"))  # repetido: recusa e reabre preenchido
+            await pilot.pause(0.3)
+            return before, after_first, len(screen.providers), type(app.screen).__name__
+
+    before, after_first, after_second, top = asyncio.run(run())
+    assert after_first == before + 1
+    assert after_second == after_first
+    assert top == "ProviderForm"
+
+
+def test_formulario_recusa_variavel_invalida_e_nome_vazio(workspace):
+    async def run():
+        app = _app(workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.push_screen(ProviderForm())
+            await pilot.pause(0.3)
+            form = app.screen
+            form.query_one("#f_api_key_env", Input).value = "GOOGLE_API_KEY (gemini-3.5-flash)"
+            junk = form._collect()
+            form.query_one("#f_api_key_env", Input).value = "GOOGLE_API_KEY"
+            form.query_one("#f_name", Input).value = ""
+            empty_name = form._collect()
+            form.query_one("#f_name", Input).value = "google"
+            fixed = form._collect()
+            return junk is None, empty_name is None, fixed
+
+    junk_refused, empty_refused, fixed = asyncio.run(run())
+    assert junk_refused
+    assert empty_refused
+    assert fixed is not None
+    assert fixed["api_key_env"] == "GOOGLE_API_KEY"

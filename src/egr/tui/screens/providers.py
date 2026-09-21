@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -12,6 +13,16 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, DataTable, Input, Label, Select, Static
 
 from ..config_form import PROVIDER_FIELDS, ProviderField, providers_of, read_value, save_config_dict, set_providers
+
+# `api_key_env` guarda o NOME da variável (GOOGLE_API_KEY), nunca a chave: um
+# nome fora desse formato é erro de preenchimento — e é recusado no formulário
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def valid_env_name(value: str) -> bool:
+    """Diz se o texto serve como nome de variável de ambiente."""
+
+    return bool(_ENV_NAME.match(value))
 
 
 def blank_provider() -> dict[str, Any]:
@@ -100,6 +111,15 @@ class ProviderForm(ModalScreen[dict[str, Any] | None]):
                 else:
                     text = str(raw).strip()
                     value = text or None
+                    if field.key == "name" and not value:
+                        self.notify("dê um nome ao provedor (ex.: google)", severity="error")
+                        return None
+                    if field.key == "api_key_env" and value and not valid_env_name(value):
+                        self.notify(
+                            "Chave: use só o NOME da variável (ex.: GOOGLE_API_KEY)",
+                            severity="error",
+                        )
+                        return None
             except ValueError as exc:
                 self.notify(f"{field.label}: {exc}", severity="error")
                 return None
@@ -128,6 +148,8 @@ class ProvidersScreen(ModalScreen[bool]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "close", "Fechar"),
         Binding("ctrl+s", "save", "Gravar", priority=True),
+        Binding("a", "add", "Adicionar"),
+        Binding("r", "remove", "Remover"),
     ]
 
     CSS = """
@@ -162,9 +184,12 @@ class ProvidersScreen(ModalScreen[bool]):
         self._refresh()
 
     def _refresh(self) -> None:
+        # a chave da linha é o índice, nunca o nome: dois provedores com o
+        # mesmo nome não podem mais derrubar a tabela com DuplicateKey — e a
+        # seleção já é posicional (cursor_row), então nada mais muda
         table = self.query_one("#table", DataTable)
         table.clear()
-        for provider in self.providers:
+        for index, provider in enumerate(self.providers):
             table.add_row(
                 str(provider.get("name", "-")),
                 str(provider.get("type", "-")),
@@ -172,7 +197,7 @@ class ProvidersScreen(ModalScreen[bool]):
                 "sim" if provider.get("enabled", True) else "não",
                 "sim" if provider.get("external") else "não",
                 str(provider.get("priority", 0)),
-                key=str(provider.get("name", "")),
+                key=f"provider-{index}",
             )
 
     def _selected(self) -> int | None:
@@ -182,10 +207,28 @@ class ProvidersScreen(ModalScreen[bool]):
         index = table.cursor_row
         return index if 0 <= index < len(self.providers) else None
 
+    def _duplicate_name(self, provider: dict[str, Any], ignore: int = -1) -> bool:
+        name = (provider.get("name") or "").strip().lower()
+        if not name:
+            return False
+        return any(
+            position != ignore and (item.get("name") or "").strip().lower() == name
+            for position, item in enumerate(self.providers)
+        )
+
+    def _remove_selected(self) -> None:
+        index = self._selected()
+        if index is None:
+            return
+        name = self.providers[index].get("name", "?")
+        self.providers.pop(index)
+        self._refresh()
+        self.notify(f"{name} removido (grave para confirmar)")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         action = event.button.id
         if action == "add":
-            self.app.push_screen(ProviderForm(), self._added)
+            self.action_add()
         elif action == "edit":
             index = self._selected()
             if index is None:
@@ -193,28 +236,40 @@ class ProvidersScreen(ModalScreen[bool]):
                 return
             self.app.push_screen(ProviderForm(self.providers[index]), self._edited(index))
         elif action == "remove":
-            index = self._selected()
-            if index is None:
-                return
-            name = self.providers[index].get("name", "?")
-            self.providers.pop(index)
-            self._refresh()
-            self.notify(f"{name} removido (grave para confirmar)")
+            self._remove_selected()
         elif action == "save":
             self.action_save()
         else:
             self.dismiss(False)
 
+    def action_add(self) -> None:
+        self.app.push_screen(ProviderForm(), self._added)
+
+    def action_remove(self) -> None:
+        self._remove_selected()
+
     def _added(self, provider: dict[str, Any] | None) -> None:
-        if provider:
-            self.providers.append(provider)
-            self._refresh()
+        if not provider:
+            return
+        if self._duplicate_name(provider):
+            self.notify(f"já existe um provedor '{provider.get('name')}'", severity="error", timeout=6)
+            self.app.push_screen(ProviderForm(provider), self._added)
+            return
+        self.providers.append(provider)
+        self._refresh()
 
     def _edited(self, index: int):
         def _done(provider: dict[str, Any] | None) -> None:
-            if provider:
-                self.providers[index] = provider
-                self._refresh()
+            if not provider:
+                return
+            if self._duplicate_name(provider, ignore=index):
+                self.notify(
+                    f"já existe um provedor '{provider.get('name')}'", severity="error", timeout=6
+                )
+                self.app.push_screen(ProviderForm(provider), self._edited(index))
+                return
+            self.providers[index] = provider
+            self._refresh()
 
         return _done
 
