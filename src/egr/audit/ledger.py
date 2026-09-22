@@ -114,6 +114,50 @@ class AuditLedger:
     def recent(self, limit: int = 20) -> list[Event]:
         return self.list(limit=limit)
 
+    def scan(
+        self,
+        *,
+        task_id: str | None = None,
+        type: str | None = None,
+        actor: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        chunk: int = 500,
+    ):
+        """Gera eventos em ordem cronológica (seq ASC), com filtros de exportação.
+
+        `since`/`until` comparam `created_at` em ISO-8601 (a ordem lexicográfica
+        coincide com a cronológica no formato UTC com microssegundos).
+        """
+        clauses, params = [], []
+        if task_id:
+            clauses.append("task_id = ?")
+            params.append(task_id)
+        if type:
+            clauses.append("type = ?")
+            params.append(type)
+        if actor:
+            clauses.append("actor = ?")
+            params.append(actor)
+        if since:
+            clauses.append("created_at >= ?")
+            params.append(since)
+        if until:
+            clauses.append("created_at <= ?")
+            params.append(until)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        offset = 0
+        while True:
+            rows = self.db.query(
+                f"SELECT * FROM events {where} ORDER BY seq ASC LIMIT ? OFFSET ?",
+                (*params, chunk, offset),
+            )
+            if not rows:
+                return
+            for row in rows:
+                yield self._row_to_event(row)
+            offset += len(rows)
+
     def count(self) -> int:
         return int(self.db.scalar("SELECT COUNT(*) FROM events") or 0)
 

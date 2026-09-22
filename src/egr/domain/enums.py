@@ -59,6 +59,8 @@ class EventType(BaseStrEnum):
     HUMAN_DECISION = "human.decision"
     # supervisão (fatia 3: orquestrador revisa o subagente)
     SUPERVISION_REVIEW = "supervision.review"
+    # compliance (fatia 4: a exportação da trilha também é auditada)
+    AUDIT_EXPORTED = "audit.exported"
     # execution
     TOOL_EXECUTED = "tool.executed"
     TOOL_FAILED = "tool.failed"

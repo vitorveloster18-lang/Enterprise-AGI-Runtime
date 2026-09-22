@@ -1159,3 +1159,28 @@ temperatura 0) e `"*"` agora recorda todas as áreas no `plan` (a escrita
 segue restrita). Com Echo, o orquestrador não planeja passos `task.delegate`
 sozinho (plano fixo) — a fatia é exercida por chamada direta/API até o modelo
 real; vereditos alimentando replanejamento do pai ficam para o futuro.
+
+## ADR-063 — Pacote de evidência: exportar a trilha de forma verificável (fatia 4)
+
+**Data:** 2026-09-22 · **Estado:** aceito · **Escopo:** `audit export`, `audit verify-export`, `audit.exported`
+
+**Contexto:** a trilha com hash encadeado prova integridade para quem tem o
+banco; o auditor externo recebe arquivo. Faltava exportar a trilha de um
+jeito que o auditor confira sozinho — e registrar quem exportou o quê.
+
+**Decisão:** `egr audit export` gera JSONL (fidelidade total) ou CSV (planilha,
+manifesto em linhas `#`), com filtros `--task/--type/--actor/--since/--until`
+e `--out` (sem `--out`, vai para stdout puro, sem poluição). O manifesto
+carrega faixa de `seq`, `ledger_head` pré-exportação e filtros. Toda
+exportação grava `audit.exported` na própria trilha (alvo, sha256, bytes,
+faixa, head). `egr audit verify-export` confere sem banco: recomputa cada
+hash, exige encadeamento só em faixa contígua (subconjunto filtrado tem
+lacunas por construção) e valida o manifesto; `complete` só para a faixa
+total íntegra até o head.
+
+**Consequências:** decisões humanas já eram eventos de primeira classe
+(`approval.requested/decided`, `human.decision`, com papel, área e
+verificação de identidade), então `--type human.decision --format csv`
+entrega o diário de decisões sem código novo no funil de aprovações. O CSV
+com payload multilinha usa escape JSON dentro da célula (válido, mas menos
+legível no Excel que o JSONL — documentado na escolha do formato).
