@@ -141,6 +141,18 @@ def default_agents() -> list[AgentSpec]:
             ),
             environment=Environment.DEVELOPMENT,
         ),
+        AgentSpec(
+            id="orchestrator-agent",
+            name="Orchestrator Agent",
+            objective="Delegar objetivos aos agentes das áreas, revisar cada entrega e escalar o que for crítico",
+            model=ModelSpec(capability="reasoning", temperature=0.0),
+            memory=["*"],
+            permissions=AgentPermissions(
+                tools=["task.delegate", "filesystem.list", "filesystem.read"],
+                namespaces=["*"],
+            ),
+            environment=Environment.DEVELOPMENT,
+        ),
     ]
 
 
@@ -745,6 +757,10 @@ class Runtime:
             },
         )
         task = self.tasks.get(approval.task_id) if approval.task_id else None
+        if approval.action == "review" and approval.tool == "task.delegate":
+            # Veredito de supervisão (fatia 3): a filha já terminou; a decisão
+            # humana fica na trilha, sem retomar nem re-executar a task.
+            return task
         if task is not None:
             return self.agent_engine.resume_after_approval(task, approval)
         return task
@@ -779,6 +795,10 @@ class Runtime:
             payload={"approval": approval.id, "decision": "denied", "tool": approval.tool},
         )
         task = self.tasks.get(approval.task_id) if approval.task_id else None
+        if approval.action == "review" and approval.tool == "task.delegate":
+            # Veredito de supervisão (fatia 3): registra e devolve a task como
+            # está, sem mexer no cursor nem re-executar a filha.
+            return task
         if task is None:
             return None
         step_id = task.context.get("pending_step")

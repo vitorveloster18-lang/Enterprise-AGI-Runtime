@@ -1,7 +1,7 @@
 # Roadmap — Fases 0 a 12 + Fase 13 (fechamento das lacunas)
 
 Situação em 2026-09: **Fases 0 a 12 implementadas e testadas** e **Fase 13 concluída**
-(631 testes). A Fase 13 não é fase nova: é o fechamento das lacunas que o próprio
+(644 testes). A Fase 13 não é fase nova: é o fechamento das lacunas que o próprio
 roadmap declarou — detalhado em [`docs/PHASE13_LACUNAS_FECHADAS.md`](PHASE13_LACUNAS_FECHADAS.md).
 
 | Fase | Nome | Situação | Observação |

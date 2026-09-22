@@ -44,6 +44,7 @@ class EventType(BaseStrEnum):
     TASK_CANCELLED = "task.cancelled"
     TASK_WAITING = "task.waiting"
     TASK_RESUMED = "task.resumed"
+    TASK_DELEGATED = "task.delegated"
     # agent / planning
     AGENT_LOADED = "agent.loaded"
     PLAN_CREATED = "plan.created"
@@ -56,6 +57,8 @@ class EventType(BaseStrEnum):
     APPROVAL_REQUESTED = "approval.requested"
     APPROVAL_DECIDED = "approval.decided"
     HUMAN_DECISION = "human.decision"
+    # supervisão (fatia 3: orquestrador revisa o subagente)
+    SUPERVISION_REVIEW = "supervision.review"
     # execution
     TOOL_EXECUTED = "tool.executed"
     TOOL_FAILED = "tool.failed"

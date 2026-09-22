@@ -33,9 +33,14 @@ class AgentEngine:
 
     # ---- planning ----------------------------------------------------
     def plan(self, task: Task, agent: AgentSpec) -> Plan:
+        namespaces = agent.memory or ["default"]
+        if "*" in namespaces:
+            # Overseer (fatia 3): "*" recorda em TODAS as áreas. A escrita
+            # continua restrita aos namespaces das permissões do agente.
+            namespaces = None
         records, memory_context = self.runtime.memory.recall(
             task.objective,
-            namespaces=agent.memory or ["default"],
+            namespaces=namespaces,
             allowed_namespaces=agent.permissions.namespaces or None,
             limit=5,
             agent_id=agent.id,

@@ -7,6 +7,7 @@ from ...domain.tool import ToolSpec
 from ..registry import ToolRegistry
 from .browser_tool import BrowserExtractTool, BrowserNavigateTool
 from .database_query import DatabaseQueryTool
+from .delegate import DelegateTool
 from .dev_tools import DevProposalsTool, DevProposeTool, DevTrialTool
 from .email_tool import EmailReadTool, EmailSendTool
 from .filesystem import FilesystemListTool, FilesystemReadTool, FilesystemWriteTool
@@ -28,6 +29,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
         IntegrationListTool,
         ProcessRunTool,
         DatabaseQueryTool,
+        DelegateTool,
         DevProposeTool,
         DevProposalsTool,
         DevTrialTool,
@@ -46,6 +48,7 @@ def register_builtin_tools(registry: ToolRegistry) -> ToolRegistry:
 
 __all__ = [
     "DatabaseQueryTool",
+    "DelegateTool",
     "DevProposalsTool",
     "DevProposeTool",
     "DevTrialTool",

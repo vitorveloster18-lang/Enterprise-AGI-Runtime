@@ -282,6 +282,21 @@ def baseline_policy() -> Policy:
                 required_role="operator",
                 reason="executar código proposto fora de desenvolvimento exige aprovação",
             ),
+            # ---------------- supervisão (fatia 3) -------------
+            PolicyRule(
+                id="supervision-delegate",
+                action="task.delegate",
+                condition=f"environment == '{DEV}'",
+                decision=DecisionType.ALLOW,
+                reason="delegar com revisão é o trabalho normal do orquestrador em desenvolvimento",
+            ),
+            PolicyRule(
+                id="supervision-delegate-guarded",
+                action="task.delegate",
+                decision=DecisionType.REQUIRE_APPROVAL,
+                required_role="operator",
+                reason="delegar fora de desenvolvimento exige aprovação (a filha continua governada)",
+            ),
             # ---------------- memory ---------------------------
             PolicyRule(
                 id="memory-write",

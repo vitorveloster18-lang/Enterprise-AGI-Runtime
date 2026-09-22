@@ -1130,3 +1130,32 @@ instalação nova e pack instalado já nascem com escopo; linhas antigas sem
 como `human` não verificado até ganhar campo de token — documentado, não
 esquecido. O escopo de *submissão* (quem pode taskear cada área) fica para
 a fatia do orquestrador.
+
+## ADR-062 — Supervisão formal: orquestrador delega, revisa, escala (fatia 3)
+
+**Data:** 2026-09-22 · **Estado:** aceito · **Escopo:** `task.delegate`, revisão, vereditos, overseer
+
+**Contexto:** com áreas para agentes (fatia 1) e pessoas (fatia 2), faltava o
+terceiro papel da visão — o orquestrador que cobra cada área. Ele precisava
+existir como ferramenta governada (não como poder do núcleo), com revisão
+obrigatória da entrega e parada no humano quando crítico.
+
+**Decisão:** `task.delegate` (risco médio, `side_effects`) cria a filha com
+`parent_id` ligado e a executa pelo motor governado — política, aprovação e
+orçamento valem dentro da filha como em qualquer task. Filha pausada devolve
+`waiting_approval` (o pai continua); filha concluída passa por revisão no
+modelo (JSON `veredito`/`notas`, PT/EN, `max_rounds`, padrão 1, teto 3);
+`revise` repete com o feedback, `escalate` (ou veredito ilegível, ou rounds
+esgotados — falhar fechado) abre aprovação vinculada à FILHA, então a área
+dela decide (fatia 2). Profundidade máxima 2. Política padrão: livre em
+desenvolvimento, com aprovação fora dele; só agentes com `task.delegate` na
+allowlist delegam.
+
+**Consequências:** aprovação de revisão (`action=review`) é VEREDITO, não
+pausa — `approve`/`deny` a registram sem retomar nem re-executar a filha
+(sem o guard, `resume_after_approval` re-rodaria a task inteira). O
+`orchestrator-agent` nasce no `init` (global, `memory/namespaces ["*"]`,
+temperatura 0) e `"*"` agora recorda todas as áreas no `plan` (a escrita
+segue restrita). Com Echo, o orquestrador não planeja passos `task.delegate`
+sozinho (plano fixo) — a fatia é exercida por chamada direta/API até o modelo
+real; vereditos alimentando replanejamento do pai ficam para o futuro.
