@@ -87,6 +87,8 @@ class EventType(BaseStrEnum):
     TOKEN_REVOKED = "identity.token_revoked"
     AUTH_SUCCEEDED = "security.auth_succeeded"
     AUTH_FAILED = "security.auth_failed"
+    # SSO (fatia 5: humano autenticado pelo IdP da empresa)
+    SSO_AUTHENTICATED = "sso.authenticated"
     AUTHORIZATION_DENIED = "security.authorization_denied"
     SECRET_STORED = "secret.stored"
     SECRET_ROTATED = "secret.rotated"

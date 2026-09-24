@@ -241,7 +241,7 @@ class DecisionRequest(BaseModel):
 
 
 def bearer_token(authorization: str | None) -> str | None:
-    """Extrai o token de `Authorization: Bearer egr_<id>.<segredo>`."""
+    """Extrai o token de Authorization Bearer (egr_... ou JWT do IdP)."""
 
     if not authorization or not authorization.lower().startswith("bearer "):
         return None

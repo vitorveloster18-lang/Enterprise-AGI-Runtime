@@ -1184,3 +1184,27 @@ verificação de identidade), então `--type human.decision --format csv`
 entrega o diário de decisões sem código novo no funil de aprovações. O CSV
 com payload multilinha usa escape JSON dentro da célula (válido, mas menos
 legível no Excel que o JSONL — documentado na escolha do formato).
+
+## ADR-064 — Costura de SSO: o Runtime aceita o IdP, sem virar um (fatia 5)
+
+**Data:** 2026-09-22 · **Estado:** aceito · **Escopo:** `security.sso`, JWT HS256, mapas grupo→papel/área
+
+**Contexto:** empresa média/grande já tem IdP (Google Workspace, Entra ID,
+Keycloak). O Runtime não deve virar um provedor de identidade — deve aceitar
+o dela, traduzindo grupos em papéis e áreas que as fatias 1–2 já impõem.
+
+**Decisão:** `security.sso` (desligado por padrão) configura emissor,
+audiência e mapas `role_map`/`area_map`; o segredo vive em `$EGR_SSO_SECRET`
+(lido a cada verificação, permite rotação sem reiniciar), nunca no yaml. O
+verificador HS256 é só stdlib e falha fechado (assinatura, `iss`/`aud`,
+`exp`/`nbf`, `sub` exigidos). `resolve` aceita JWT quando habilitado — então
+CLI (`--token`, `whoami`, `login-sso`), API (Bearer) e aprovações ganham SSO
+pela mesma porta. O humano é provisionado no primeiro login e tem papéis e
+áreas sincronizados a cada login (o IdP é a fonte da verdade); mapa com papel
+desconhecido barra o boot (`ConfigError`, explícito melhor que silencioso).
+
+**Consequências:** id do principal = e-mail do claim, ou `sso:<sub>` sem
+e-mail. Principal desabilitado localmente barra mesmo com JWT válido (a
+revogação local continua valendo). IdPs RS256/JWKS entram trocando o
+verificador (`verify(raw) -> SSOClaims`) — a costura é a interface, não o
+algoritmo. Tokens `egr_` seguem intactos para serviços e agentes.

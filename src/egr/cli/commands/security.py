@@ -343,7 +343,7 @@ def identity_revoke_token(
 
 @identity_app.command(name="whoami")
 def identity_whoami(
-    by: str = typer.Option(None, "--by", help="id do principal ou token egr_..."),
+    by: str = typer.Option(None, "--by", help="id do principal, token egr_... ou JWT do IdP"),
     workspace: Path = typer.Option(None, "--workspace", "-w"),
     as_json: bool = typer.Option(False, "--json"),
 ):
@@ -368,6 +368,37 @@ def identity_whoami(
             "permissões": ", ".join(data["permissions"]),
         },
     )
+
+
+@identity_app.command(name="login-sso")
+def identity_login_sso(
+    jwt: str = typer.Option(..., "--jwt", help="JWT emitido pelo IdP da empresa"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Autentica com o IdP (provisiona o humano no primeiro login)."""
+
+    runtime = get_runtime(workspace)
+    try:
+        principal = runtime.identity.authenticate_sso(jwt)
+    except AuthenticationError as exc:
+        warning(f"login SSO falhou: {exc}")
+        info("confira security.sso no egr.yaml e o segredo em $EGR_SSO_SECRET")
+        raise typer.Exit(code=1) from exc
+    data = principal.as_row()
+    if as_json:
+        json_output({"authenticated": True, **data})
+        return
+    kv(
+        "SSO",
+        {
+            "id": data["id"],
+            "nome": data["name"],
+            "papéis": ", ".join(data["roles"]),
+            "áreas": ", ".join(data["areas"]) or "(todas)",
+        },
+    )
+    success(f"login SSO como {data['id']}")
 
 
 # ----------------------------------------------------------------------

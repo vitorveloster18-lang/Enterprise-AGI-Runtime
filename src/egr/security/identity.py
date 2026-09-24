@@ -11,6 +11,8 @@ objeto verificável:
 * `Principal.kind == agent` **nunca** recebe `approval.decide`: um agente não
   aprova o próprio trabalho (RBAC + checagem explícita em
   `Runtime._authorize_decision`).
+* SSO (fatia 5) entra pela mesma porta: `resolve` aceita JWT do IdP quando
+  `security.sso` está habilitado, provisionando o humano no primeiro login.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from ..core.ids import new_id
 from ..core.timeutil import utcnow
 from ..domain.enums import BaseStrEnum, EventType
 from .rbac import DEFAULT_ROLE, ROLES, permissions_for
+from .sso import SSOVerifier, is_jwt
 
 TOKEN_PREFIX = "egr"
 TOKEN_SECRET_BYTES = 32
@@ -143,9 +146,10 @@ def parse_token(raw: str) -> tuple[str, str]:
 class IdentityService:
     """Cria, credencia e autentica principais."""
 
-    def __init__(self, repository, audit=None):
+    def __init__(self, repository, audit=None, sso: SSOVerifier | None = None):
         self.repository = repository
         self.audit = audit
+        self.sso = sso
 
     # ---- principals ---------------------------------------------------
     def create_principal(
@@ -331,14 +335,84 @@ class IdentityService:
         )
         return principal
 
+    def authenticate_sso(self, raw: str, *, actor: str = "sso") -> Principal:
+        """Autentica um JWT do IdP; provisiona/atualiza o humano no login."""
+
+        if self.sso is None or not self.sso.enabled:
+            raise AuthenticationError("SSO desabilitado")
+        try:
+            claims = self.sso.verify(raw)
+        except AuthenticationError as exc:
+            self._record(EventType.AUTH_FAILED, actor="sso", payload={"reason": str(exc)})
+            raise
+        spec = self.sso.principal_spec(claims)
+        principal = self.repository.get_principal(spec["id"])
+        if principal is None:
+            return self._provision_sso(spec, claims, actor=actor)
+        if not principal.active:
+            self._record(
+                EventType.AUTH_FAILED,
+                actor=principal.id,
+                payload={"reason": "principal_disabled", "sub": claims.sub},
+            )
+            raise AuthenticationError(f"principal '{principal.id}' está desabilitado")
+        # O IdP é a fonte da verdade para grupos: sincroniza papéis/áreas no login.
+        if sorted(principal.roles) != sorted(spec["roles"]):
+            self.set_roles(principal.id, spec["roles"], actor=actor)
+            principal = self.repository.get_principal(spec["id"])
+        if sorted(principal.areas) != sorted(spec["areas"]):
+            self.set_areas(principal.id, spec["areas"], actor=actor)
+            principal = self.repository.get_principal(spec["id"])
+        principal.name = spec["name"] or principal.name
+        principal.email = spec["email"] or principal.email
+        principal.metadata = {**principal.metadata, **spec["metadata"]}
+        principal.last_seen_at = utcnow()
+        self.repository.save_principal(principal)
+        self._record(
+            EventType.SSO_AUTHENTICATED,
+            actor=principal.id,
+            payload={"sub": claims.sub, "iss": claims.iss, "roles": principal.roles},
+        )
+        return principal
+
+    def _provision_sso(self, spec, claims, *, actor: str) -> Principal:
+        principal = self.create_principal(
+            spec["id"],
+            name=spec["name"],
+            kind=PrincipalKind.HUMAN,
+            roles=spec["roles"],
+            areas=spec["areas"],
+            email=spec["email"],
+            actor=actor,
+            metadata=spec["metadata"],
+        )
+        principal.last_seen_at = utcnow()
+        self.repository.save_principal(principal)
+        self._record(
+            EventType.SSO_AUTHENTICATED,
+            actor=principal.id,
+            payload={
+                "sub": claims.sub,
+                "iss": claims.iss,
+                "roles": principal.roles,
+                "provisioned": True,
+            },
+        )
+        return principal
+
     def resolve(self, actor: str | None) -> Principal | None:
-        """Aceita um token (`egr_...`) ou um id de principal. Nunca levanta."""
+        """Aceita token `egr_...`, JWT do IdP ou id de principal. Nunca levanta."""
 
         if not actor:
             return None
         if actor.startswith(f"{TOKEN_PREFIX}_"):
             try:
                 return self.authenticate(actor)
+            except AuthenticationError:
+                return None
+        if self.sso is not None and self.sso.enabled and is_jwt(actor):
+            try:
+                return self.authenticate_sso(actor)
             except AuthenticationError:
                 return None
         principal = self.repository.get_principal(actor)

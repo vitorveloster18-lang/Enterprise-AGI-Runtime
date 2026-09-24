@@ -48,6 +48,7 @@ from ..security.identity import IdentityService, PrincipalKind
 from ..security.keystore import MasterKey, MasterKeyStore
 from ..security.rbac import APPROVAL_DECIDE, PERMISSIONS, ROLES, has_permission, in_area, role_satisfies
 from ..security.redaction import redact_mapping
+from ..security.sso import SSOVerifier
 from ..security.vault import SecretVault
 from ..storage import Database, apply_migrations, migration_status
 from ..storage.repositories import (
@@ -195,7 +196,9 @@ class Runtime:
         # ---- segurança (Fase 4) -------------------------------------
         self.keystore = MasterKeyStore(settings.workspace)
         self.key_repository = KeyRepository(self.db)
-        self.identity = IdentityService(IdentityRepository(self.db), audit=self.audit)
+        sso_security = settings.config.security
+        sso = SSOVerifier(sso_security.sso) if sso_security.sso and sso_security.sso.enabled else None
+        self.identity = IdentityService(IdentityRepository(self.db), audit=self.audit, sso=sso)
         self.vault = SecretVault(SecretRepository(self.db), self.keystore, audit=self.audit)
 
         # ---- orquestração (Fase 6) ----------------------------------

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..domain.enterprise import Enterprise
 from ..domain.enums import Environment
+from ..security.sso import SSOConfig
 from .errors import ConfigError
 
 _ENV_PATTERN = re.compile(r"\$\{env:([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
@@ -308,6 +309,8 @@ class SecurityConfig(BaseModel):
     approval_min_role: str = "approver"
     #: agentes nunca aprovam o próprio trabalho (spec: humano aprova o crítico)
     allow_agent_approval: bool = False
+    #: costura de SSO (fatia 5): None/desligado = só tokens `egr_` valem
+    sso: SSOConfig | None = None
 
 
 class MemoryConfig(BaseModel):
