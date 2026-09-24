@@ -621,9 +621,198 @@ Nada é confiado ao prompt: o modelo **propõe**, o Runtime **autoriza**, a ferr
 - [`docs/PHASE11_INTEGRATIONS.md`](docs/PHASE11_INTEGRATIONS.md) — Fase 11 (conectores REST/GraphQL/SQL/webhook, política por operação, eventos idempotentes)
 - [`docs/PHASE12_VERTICAL_PACKS.md`](docs/PHASE12_VERTICAL_PACKS.md) — Fase 12 (packs verticais por proposta e fila de saída com retry)
 - [`docs/PHASE13_LACUNAS_FECHADAS.md`](docs/PHASE13_LACUNAS_FECHADAS.md) — Fase 13 (fechamento das lacunas: anexos e botões, dreno, avaliação, assinatura, coordenação, memória)
+- [`docs/LOCAL.md`](docs/LOCAL.md) — rodando local: Ollama, modelos por papel, hardware e rota híbrida
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — Fases 0–12 e critérios de saída
 - [`examples/acme-workspace`](examples/acme-workspace) — workspace de exemplo (vertical contábil)
 
-## 9. Licença
+## 9. Como o projeto funciona
+
+A ideia cabe em cinco linhas: **cada departamento ganha um funcionário de IA
+com acesso só à sua área; um supervisor cobra o trabalho de todos; o humano
+decide o que é crítico; tudo fica registrado com prova.** O modelo de IA
+pode ser trocado (nuvem hoje, servidor da empresa amanhã) sem trocar nada do
+resto — porque o trabalho, as permissões e a memória pertencem ao Runtime,
+não ao modelo.
+
+### O ciclo de uma tarefa
+
+1. Alguém pede em linguagem natural (`egr task "conciliar os lançamentos"`).
+2. O agente da área monta um **plano** (passos + ferramentas).
+3. Cada passo passa pela **política**: libera, barra ou pausa para o humano.
+4. A **ferramenta** executa (ler arquivo, consultar banco, chamar o ERP).
+5. O resultado vira **memória** da empresa e **evento auditado**.
+
+Quando o pedido é grande, o **orquestrador** divide entre os agentes das áreas,
+**revisa cada entrega** e escala ao humano o que for crítico — nunca aceita
+sozinho o que não entendeu.
+
+### Os quatro papéis
+
+| Papel | Faz | Não faz |
+|---|---|---|
+| Agente de área | executa o trabalho do seu setor | não enxerga outros setores |
+| Orquestrador | delega, revisa, escala | não aprova no lugar do humano |
+| Humano | decide aprovações e promoções | não executa rotina |
+| Runtime | autoriza, registra, cobra | não inventa permissão |
+
+### O que o modelo faz — e o que ele nunca faz
+
+O modelo **propõe**. O Runtime **autoriza**, a ferramenta **executa**, o ledger
+**registra**. Nenhum prompt convence o Runtime a liberar o que a política
+negou: a governança está no código, não na conversa.
+
+## 10. Configurações
+
+Princípios: o `egr.yaml` é **opcional** (sem ele, os padrões funcionam
+offline); **segredo nunca vai para o arquivo** (usa-se `api_key_env`,
+`vault:...` ou `${env:...}`); e tudo que é rotina se configura pela
+interface (`ctrl+s` na TUI), não à mão.
+
+### Mapa
+
+| O quê | Onde | Exemplo |
+|---|---|---|
+| Modelo, orçamento, segurança, memória... | `egr.yaml` (raiz do workspace) | abaixo |
+| Agentes (um por área + orquestrador) | `agents/*.yaml` | `area: finance` |
+| Regras de negócio | `policies/*.yaml` | aprovar acima de R$ 5 mil |
+| Processos multi-etapas | `workflows/*.yaml` | conciliação mensal |
+| Sistemas externos | `integrations/*.yaml` | ERP, CRM, banco SQL |
+| Ferramentas próprias | `tools/` (via proposta `dev.*`) | sempre com aprovação humana |
+| Avaliações | `evaluations/` | casos + limites + baseline |
+
+### `egr.yaml` anotado
+
+```yaml
+environment: development            # development | staging | production
+
+enterprise:
+  name: "ACME Contabilidade"
+  settings:
+    data_residency: local           # local | region | any
+    external_ai: allowed            # allowed | restricted | forbidden
+    default_environment: development
+
+models:
+  routing: local_first              # priority | cost | local_first
+  overflow: escalate                # truncate | escalate | deny
+  budget:
+    per_task: 0.50
+    per_day: 5.00
+    on_exceeded: deny               # deny | warn
+  providers:
+    - name: local
+      type: ollama                  # echo | ollama | openai_compat
+      model: llama3.1:8b
+      base_url: http://localhost:11434
+      priority: 10
+      max_context_tokens: 16384
+      capabilities: [reasoning, chat]
+    - name: cloud
+      type: openai_compat
+      model: gpt-4o-mini
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY   # ou vault:openai
+      external: true
+      priority: 1
+      pricing: {input_per_1m: 0.15, output_per_1m: 0.60}
+
+security:
+  identity_required: false          # true = decisão crítica exige credencial
+  approval_min_role: approver
+  allow_agent_approval: false       # agentes nunca aprovam o próprio trabalho
+  sso:                              # desligado = só tokens egr_ valem
+    enabled: true
+    issuer: https://idp.empresa.com
+    audience: egr
+    role_map: {fin: [approver]}     # grupo do IdP -> papéis
+    area_map: {fin: [finance]}       # grupo do IdP -> áreas
+
+memory:
+  retrieval: hybrid                 # hybrid | fts | semantic
+  auto_recall: true
+  scrub_pii: true                   # CPF/CNPJ/cartão nem entram
+
+tools:
+  sandbox:
+    mode: auto                      # auto | container | process
+    network: false
+
+runtime:
+  max_steps: 8
+  tool_timeout: 30
+  model_timeout: 120
+
+release:
+  min_approvals_production: 2       # quórum: duas pessoas diferentes
+```
+
+### Variáveis de ambiente
+
+| Variável | Para quê |
+|---|---|
+| `OPENAI_API_KEY`, `GEMINI_API_KEY`... | chaves dos providers (`api_key_env`) |
+| `EGR_SSO_SECRET` | segredo que valida o JWT do IdP |
+
+### Ambientes
+
+`development` libera execução local no sandbox; `staging` e `production`
+exigem aprovação para escrita, código e chamadas externas — a mesma task se
+comporta diferente por ambiente, sem mudar o pedido. Conferência:
+`egr doctor`, `egr security status`, `egr policy test <ação> --env production`.
+
+## 11. Apresentação para clientes
+
+### O problema
+
+Toda empresa ouviu que "IA faz tudo" — e descobriu que IA solta não entra em
+operação séria: ninguém sabe o que ela acessou, quem autorizou, onde foi parar
+o dado, nem como provar isso numa auditoria. Chatbot responde; **trabalho de
+verdade exige dono, limite e rastro.**
+
+### O que o EGR entrega
+
+- **Um funcionário de IA por departamento**, que só enxerga a sua área.
+- **Um supervisor** que distribui, revisa e escala o que é crítico.
+- **O humano decidindo** aprovações, promoções e exceções — com identidade
+  verificada (inclusive o login da empresa, via SSO).
+- **Memória da empresa**, não do modelo: regras, histórico e aprendizados ficam
+  no Runtime, sobrevivem à troca de provedor.
+- **Prova de tudo**: trilha com hash encadeado e pacote de evidência que o
+  auditor confere sem precisar do sistema.
+
+### Na prática
+
+Uma nota fiscal chega no e-mail. O agente do financeiro extrai os dados,
+confere contra o ERP e prepara o lançamento — mas **não lança**: acima do
+limite, o pedido pausa e o gerente aprova na tela (ou no Telegram). Aprovado,
+o lançamento sai, a memória registra como foi feito e a trilha guarda quem
+pediu, quem aprovou e quando. Mês seguinte, o mesmo processo roda igual.
+
+### Por que é diferente
+
+| | Chatbot | Automação (RPA) | Framework de agentes | **EGR** |
+|---|---|---|---|---|
+| Entende pedido em linguagem natural | sim | não | sim | sim |
+| Executa em sistemas reais | não | sim | depende de código | sim, governado |
+| Limite por área/departamento | não | parcial | você programa | nativo |
+| Humano aprova o crítico | não | não | você programa | nativo, com quórum |
+| Trilha auditável + evidência | não | logs soltos | você programa | nativa, verificável |
+| Roda 100% dentro da empresa | não | sim | depende | sim (Ollama/local) |
+
+### Implantação
+
+Piloto em **um departamento**, em semanas: conecta os sistemas dele, define os
+limites com o gerente e mede antes x depois (tempo, custo, erro). Começa na
+nuvem ou no seu servidor atual; **termina 100% dentro da empresa**, no hardware
+que o cliente comprar quando fizer sentido — o [guia local](docs/LOCAL.md)
+diz quanto basta. Sem refazer nada na troca: agente, memória e trilha são os
+mesmos do piloto à operação.
+
+### Próximo passo
+
+Uma conversa de 30 minutos para escolher o departamento-piloto e mapear um
+processo que dói hoje. O piloto prova valor com número — não com promessa.
+
+## 12. Licença
 
 Proprietário.
