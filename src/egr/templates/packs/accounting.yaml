@@ -1,0 +1,115 @@
+id: accounting
+name: Contábil
+version: 1.0.0
+vertical: Contabilidade
+description: >
+  Conciliação contábil: agente de lançamentos, workflow de conferência de notas,
+  política de lançamento com limiar e leitura do ERP por SQL declarado.
+requires:
+  tools: [database.query, filesystem.read]
+  min_environment: development
+agents:
+  - id: accounting-agent
+    area: accounting
+    name: Accounting Agent
+    version: 1.0.0
+    objective: Conciliar notas fiscais, propor lançamentos e apontar divergências
+    model:
+      capability: reasoning
+      temperature: 0.0
+    memory:
+      - accounting
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+      namespaces:
+        - accounting
+        - default
+      max_risk: medium
+    environment: development
+workflows:
+  - id: conciliacao-notas
+    name: Conciliação de notas fiscais
+    version: 1.0.0
+    description: nota -> classificação -> política -> lançamento conferido
+    environment: development
+    on_error: compensate
+    steps:
+      - id: s1
+        agent: accounting-agent
+        objective: Extrair fornecedor, valores e impostos da nota recebida
+        outputs:
+          nota: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        agent: accounting-agent
+        objective: Comparar a nota com o pedido de compra e o histórico do fornecedor
+        max_attempts: 2
+      - id: s3
+        depends_on: [s2]
+        policy: contabil-lancamento
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s4
+        depends_on: [s3]
+        objective: Registrar o resultado da conciliação na memória contábil
+        namespace: accounting
+policies:
+  - id: contabil-lancamento
+    name: Política de lançamento contábil
+    version: 1.0.0
+    description: limiares e rastreabilidade de lançamentos
+    priority: 55
+    enabled: true
+    rules:
+      - id: lancamento-baixo
+        action: accounting.entry
+        condition: amount < 10000
+        decision: allow
+        reason: lançamentos de baixo valor são automáticos
+      - id: lancamento-aprovacao
+        action: accounting.entry
+        condition: amount >= 10000
+        decision: require_approval
+        required_role: approver
+        reason: lançamentos relevantes exigem conferência humana
+      - id: lancamento-sem-nota
+        action: accounting.entry
+        condition: not has_invoice
+        decision: deny
+        reason: lançamento sem nota fiscal vinculada é proibido
+integrations:
+  - id: ERP_CONTABIL
+    name: ERP contábil (leitura)
+    type: sql
+    description: consulta de lançamentos e saldos no ERP
+    enabled: false
+    dsn: sqlite:///.egr/erp-contabil.db
+    read_only: true
+    timeout: 10
+    cost_per_call: 0.0
+evaluations:
+  - id: contabil-conciliacao
+    name: Conciliação de notas
+    target_kind: workflow
+    target: conciliacao-notas
+    cases:
+      - id: nota-completa
+        args: {nota: 82731}
+        expect_ok: true
+        max_duration_ms: 60000
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-contabil.md: |
+    # Política Contábil
+
+    - Todo lançamento nasce de um documento (nota, contrato ou folha).
+    - Lançamento sem nota vinculada é proibido por política, não por boa vontade.
+    - Lançamentos a partir de R$ 10.000,00 exigem conferência humana.
+    - A leitura do ERP é somente leitura e por conector declarado.

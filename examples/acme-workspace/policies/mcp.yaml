@@ -1,0 +1,20 @@
+id: mcp-lab
+name: Ferramentas MCP confiáveis
+version: 1.0.0
+description: >
+  Ferramentas descobertas via MCP não herdam permissão: sem regra, o Runtime nega.
+  Esta política libera explicitamente o servidor local de cálculo.
+priority: 60
+enabled: true
+rules:
+  - id: mcp-calculadora
+    action: mcp.calculadora.*
+    decision: allow
+    reason: servidor local de cálculo, sem efeitos externos
+
+  - id: mcp-producao
+    action: mcp.*
+    condition: environment == 'production'
+    decision: require_approval
+    required_role: operator
+    reason: qualquer ferramenta MCP em produção exige aprovação humana

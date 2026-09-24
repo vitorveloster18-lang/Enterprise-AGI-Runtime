@@ -1,0 +1,30 @@
+integrations:
+  - id: CRM
+    name: CRM (clientes e contratos)
+    type: rest
+    description: leitura de clientes, contratos e faturas no CRM
+    enabled: false
+    base_url: https://api.acme.example.com/v1
+    auth:
+      scheme: bearer
+      secret: vault:CRM_TOKEN           # o token não mora aqui
+    allowed_hosts: [api.acme.example.com]
+    allowed_methods: [GET]
+    read_only: true
+    timeout: 20
+    cost_per_call: 0.002
+
+  - id: PEDIDOS
+    name: Pedidos (escrita)
+    type: rest
+    description: criação de pedidos no sistema comercial
+    enabled: false
+    base_url: https://api.acme.example.com/v1
+    auth:
+      scheme: bearer
+      secret: vault:CRM_TOKEN
+    allowed_hosts: [api.acme.example.com]
+    allowed_methods: [GET, POST]        # POST entra aqui, não no CRM
+    read_only: false                    # escrita: política exige aprovação
+    timeout: 20
+    cost_per_call: 0.01

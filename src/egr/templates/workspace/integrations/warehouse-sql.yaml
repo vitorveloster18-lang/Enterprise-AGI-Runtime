@@ -1,0 +1,11 @@
+# SQL: só drivers declarados (padrão: sqlite). Nada de `import` vivo.
+integrations:
+  - id: WAREHOUSE
+    name: Data warehouse local (sqlite)
+    type: sql
+    description: leitura analítica no banco local do workspace
+    enabled: false
+    dsn: sqlite:///.egr/egr.db          # drivers permitidos: integrations.allow_sql_drivers
+    read_only: true                     # SQL de escrita é recusado antes da política
+    timeout: 10
+    cost_per_call: 0.0

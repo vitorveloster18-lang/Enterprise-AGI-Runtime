@@ -1,0 +1,118 @@
+id: operations
+name: Operações
+version: 1.0.0
+vertical: Operações e logística
+description: >
+  Reposição e inventário: agente de operações, workflow de reposição, política
+  de compra por limiar e consulta de estoque no ERP por GraphQL.
+requires:
+  tools: [database.query, filesystem.read]
+  min_environment: development
+agents:
+  - id: operations-agent
+    area: operations
+    name: Operations Agent
+    version: 1.0.0
+    objective: Monitorar estoque, sugerir reposição e apontar riscos de ruptura
+    model:
+      capability: reasoning
+      temperature: 0.1
+    memory:
+      - operations
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+      namespaces:
+        - operations
+        - default
+      max_risk: medium
+    environment: development
+workflows:
+  - id: reposicao-estoque
+    name: Reposição de estoque
+    version: 1.0.0
+    description: estoque -> cálculo de reposição -> política de compra -> registro
+    environment: development
+    on_error: compensate
+    inputs:
+      centro: producao
+    steps:
+      - id: s1
+        agent: operations-agent
+        objective: Ler o estoque atual e calcular o ponto de reposição
+        outputs:
+          reposicao: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        policy: operacoes-compra
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s3
+        depends_on: [s2]
+        objective: Registrar a sugestão de compra na memória de operações
+        namespace: operations
+policies:
+  - id: operacoes-compra
+    name: Política de compra e reposição
+    version: 1.0.0
+    description: compra tem limite por valor e sempre rastro de necessidade
+    priority: 50
+    enabled: true
+    rules:
+      - id: compra-pequena
+        action: purchase.create
+        condition: amount < 15000
+        decision: allow
+        reason: compras de reposição corrente são automáticas
+      - id: compra-aprovacao
+        action: purchase.create
+        condition: amount >= 15000
+        decision: require_approval
+        required_role: operations_manager
+        reason: compras relevantes exigem gestor de operações
+      - id: compra-sem-necessidade
+        action: purchase.create
+        condition: not has_demand
+        decision: deny
+        reason: compra sem demanda registrada é proibida
+integrations:
+  - id: ERP_OPERACOES
+    name: ERP de operações (GraphQL)
+    type: graphql
+    description: consulta de estoque, pedidos e fornecedores
+    enabled: false
+    base_url: https://erp.exemplo.com.br/graphql
+    auth:
+      scheme: header
+      header: X-Api-Key
+      prefix: ""
+      secret: ERP_OPERACOES_KEY
+    allowed_hosts: [erp.exemplo.com.br]
+    allowed_methods: [POST]
+    read_only: true
+    timeout: 25
+    cost_per_call: 0.005
+evaluations:
+  - id: operacoes-reposicao
+    name: Reposição de estoque
+    target_kind: workflow
+    target: reposicao-estoque
+    cases:
+      - id: estoque-baixo
+        args: {centro: producao}
+        expect_ok: true
+        max_duration_ms: 60000
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-operacoes.md: |
+    # Política de Operações
+
+    - Compra nasce de demanda registrada (estoque mínimo ou pedido).
+    - Compras a partir de R$ 15.000,00 exigem gestor de operações.
+    - Estoque é consultado por conector declarado; planilha paralela não é fonte.

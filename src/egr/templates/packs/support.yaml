@@ -1,0 +1,124 @@
+id: support
+name: Suporte
+version: 1.0.0
+vertical: Atendimento
+description: >
+  Atendimento e chamados: agente de suporte, workflow de resolução, política de
+  reembolso por limiar e entrada de eventos do helpdesk por webhook assinado.
+requires:
+  tools: [database.query, filesystem.read]
+  min_environment: development
+agents:
+  - id: support-agent
+    area: support
+    name: Support Agent
+    version: 1.0.0
+    objective: Resolver chamados com contexto, limite de reembolso e resposta auditada
+    model:
+      capability: reasoning
+      temperature: 0.2
+    memory:
+      - support
+      - default
+    permissions:
+      tools:
+        - filesystem.*
+        - database.query
+        - integration.call
+      namespaces:
+        - support
+        - default
+      max_risk: medium
+    environment: development
+workflows:
+  - id: atendimento-chamado
+    name: Resolução de chamado
+    version: 1.0.0
+    description: chamado -> diagnóstico -> política de reembolso -> resposta
+    environment: development
+    on_error: continue
+    trigger:
+      type: event
+      event: integration.helpdesk
+      enabled: true
+    inputs:
+      prioridade: normal
+    steps:
+      - id: s1
+        agent: support-agent
+        objective: Diagnosticar o chamado e propor resolução com passos verificáveis
+        outputs:
+          diagnostico: "{{task.answer}}"
+      - id: s2
+        depends_on: [s1]
+        policy: suporte-reembolso
+        tool: database.query
+        args:
+          sql: select id, status from tasks order by created_at desc limit 5
+      - id: s3
+        depends_on: [s2]
+        objective: Registrar a resolução do chamado na memória do namespace support
+        namespace: support
+policies:
+  - id: suporte-reembolso
+    name: Política de reembolso e cortesia
+    version: 1.0.0
+    description: gesto comercial tem limite; acima dele, é decisão de gente
+    priority: 55
+    enabled: true
+    rules:
+      - id: cortesia-pequena
+        action: support.refund
+        condition: amount <= 200
+        decision: allow
+        reason: cortesia até R$ 200 é decidida no atendimento
+      - id: reembolso-aprovacao
+        action: support.refund
+        condition: amount > 200
+        decision: require_approval
+        required_role: support_manager
+        reason: reembolso acima de R$ 200 exige gestor de suporte
+      - id: reembolso-sem-causa
+        action: support.refund
+        condition: not has_reason
+        decision: deny
+        reason: reembolso sem causa registrada é proibido
+integrations:
+  - id: HELPDESK
+    name: Eventos do helpdesk (entrada)
+    type: webhook
+    description: recebe chamados por webhook assinado e idempotente
+    enabled: false
+    base_url: https://helpdesk.exemplo.com.br
+    inbound:
+      enabled: true
+      secret: vault:HELPDESK_WEBHOOK_SECRET
+      signature_header: X-EGR-Signature
+      event_id_header: X-EGR-Event-Id
+      event_type: integration.helpdesk
+      tolerance_seconds: 300
+    cost_per_call: 0.0
+evaluations:
+  - id: suporte-chamado
+    name: Resolução de chamado
+    target_kind: workflow
+    target: atendimento-chamado
+    cases:
+      - id: chamado-simples
+        args: {prioridade: normal}
+        expect_ok: true
+        max_duration_ms: 60000
+      - id: reembolso-alto
+        args: {prioridade: alta}
+        expect_ok: false
+    thresholds:
+      min_pass_rate: 1.0
+      max_regressions: 0
+documents:
+  politica-suporte.md: |
+    # Política de Suporte
+
+    - Todo chamado tem diagnóstico escrito antes da resolução.
+    - Reembolso exige causa registrada; acima de R$ 200 exige gestor.
+    - Evento do helpdesk entra por webhook assinado e idempotente.
+    - Base de conhecimento é memória da empresa, não do agente.

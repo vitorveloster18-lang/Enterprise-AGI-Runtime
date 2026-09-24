@@ -1,0 +1,415 @@
+"""egr memory search|write|show|list|consolidate|reindex|forget|stats.
+
+A memória pertence à empresa: recuperada por léxico + semântica, reforçada pelo
+uso e consolidada por política — nunca cresce sem critério.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+
+from ...core.errors import AuthorizationError
+from ...domain.enums import MemoryKind
+from ..context import get_runtime
+from ..formatting import error, info, json_output, kv, success, table, warning
+
+app = typer.Typer(help="Memória: knowledge · operational · episodic · semantic")
+
+KINDS = [kind.value for kind in MemoryKind]
+
+
+def _scope_of(runtime, by: str | None) -> list[str] | None:
+    """Escopo de áreas do principal (--by); None = sem restrição."""
+
+    if not by:
+        return None
+    principal = runtime.identity.resolve(by)
+    if principal is None:
+        error(f"principal '{by}' não encontrado")
+        raise typer.Exit(code=1)
+    return principal.areas or None
+
+
+@app.command(name="search")
+def search(
+    query: str = typer.Argument(..., help="Texto a recuperar"),
+    mode: str = typer.Option("", "--mode", "-m", help="hybrid | fts | semantic"),
+    namespace: str = typer.Option("", "--namespace", "-n"),
+    kind: str = typer.Option("", "--kind", "-k", help="knowledge|operational|episodic|semantic"),
+    limit: int = typer.Option(5, "--limit", "-l"),
+    archived: bool = typer.Option(False, "--archived", help="Incluir registros arquivados"),
+    explain: bool = typer.Option(False, "--explain", help="Mostrar a fusão léxico/semântica"),
+    by: str = typer.Option(None, "--by", help="Id do principal (aplica as áreas dele)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Busca na memória da empresa (híbrido por padrão)."""
+
+    runtime = get_runtime(workspace)
+    try:
+        records = runtime.memory.search(
+            query,
+            namespaces=[namespace] if namespace else None,
+            kinds=[kind] if kind else None,
+            limit=limit,
+            mode=mode or None,
+            include_archived=archived,
+            explain=explain,
+            allowed_namespaces=_scope_of(runtime, by),
+            actor=by,
+        )
+    except AuthorizationError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    if as_json:
+        json_output([record.model_dump(mode="json") for record in records])
+        return
+    if not records:
+        info("nenhum registro encontrado")
+        return
+    columns = ["id", "namespace", "tipo", "score", "resumo"]
+    if explain:
+        columns += ["rank léxico", "rank semântico", "cosseno"]
+    rows = []
+    for record in records:
+        trace = record.metadata.get("retrieval", {})
+        row = [
+            record.id,
+            record.namespace,
+            record.kind,
+            f"{record.score:.4f}" if record.score is not None else "-",
+            (record.summary or record.content)[:55],
+        ]
+        if explain:
+            row += [
+                trace.get("fts_rank") or "-",
+                trace.get("semantic_rank") or "-",
+                trace.get("cosine") if trace.get("cosine") is not None else "-",
+            ]
+        rows.append(row)
+    table("Memória", columns, rows)
+
+
+@app.command(name="write")
+def write(
+    content: str = typer.Argument(..., help="Conteúdo a memorizar"),
+    kind: str = typer.Option("knowledge", "--kind", "-k"),
+    namespace: str = typer.Option("default", "--namespace", "-n"),
+    tags: str = typer.Option("", "--tags", "-t", help="Separadas por vírgula"),
+    importance: float = typer.Option(None, "--importance", "-i", help="0..1 (padrão: inferido)"),
+    by: str = typer.Option(None, "--by", help="Id do principal (aplica as áreas dele)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Escreve um registro de memória (normalmente feito pelo Runtime)."""
+
+    if kind not in KINDS:
+        error(f"tipo inválido: {kind} (válidos: {', '.join(KINDS)})")
+        raise typer.Exit(code=1)
+    runtime = get_runtime(workspace)
+    try:
+        record = runtime.memory.write(
+            content,
+            kind=MemoryKind(kind),
+            namespace=namespace,
+            tags=[item.strip() for item in tags.split(",") if item.strip()],
+            source="cli",
+            importance=importance,
+            allowed_namespaces=_scope_of(runtime, by),
+            agent_id=by,
+        )
+    except AuthorizationError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    success(f"memória registrada: {record.id} (importância {record.importance})")
+    removed = record.metadata.get("pii_removido") or {}
+    if removed:
+        warning(
+            "dado pessoal removido na escrita: "
+            + ", ".join(f"{count} {name}" for name, count in sorted(removed.items()))
+        )
+
+
+@app.command(name="scrub")
+def scrub(
+    text: str = typer.Argument(..., help="Texto a conferir (nada é gravado)"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Mostra o que a limpeza de PII removeria — e nunca o valor removido."""
+
+    runtime = get_runtime(workspace)
+    cleaned, removed = runtime.memory.scrub(text)
+
+    if not removed:
+        success("nada a remover")
+        info(cleaned)
+        return
+    warning("removido: " + ", ".join(f"{count} {name}" for name, count in sorted(removed.items())))
+    info(cleaned)
+
+
+@app.command(name="add-media")
+def add_media(
+    file: Path = typer.Argument(..., help="Arquivo (imagem, áudio, PDF ou texto)"),
+    caption: str = typer.Option("", "--caption", "-c", help="Legenda/transcrição — é o que fica buscável"),
+    namespace: str = typer.Option("default", "--namespace", "-n"),
+    kind: str = typer.Option("knowledge", "--kind", "-k"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Memoriza uma mídia: o binário vai para artifacts/media, o texto fica buscável."""
+
+    from ...core.errors import ConfigError
+
+    if not file.exists():
+        error(f"arquivo não encontrado: {file}")
+        raise typer.Exit(code=1)
+    runtime = get_runtime(workspace)
+    try:
+        record = runtime.memory.remember_media(
+            file, caption=caption, filename=file.name, namespace=namespace, kind=kind, actor="human:cli"
+        )
+    except ConfigError as exc:
+        error(str(exc))
+        raise typer.Exit(code=1) from exc
+    success(f"mídia memorizada: {record.id} ({record.asset.modality}, {record.asset.size} bytes)")
+    if not caption:
+        warning("sem legenda: o registro existe, mas não é recuperável por texto")
+
+
+@app.command(name="media")
+def media(workspace: Path = typer.Option(None, "--workspace", "-w")):
+    """Estado da memória multimodal: teto, tipos aceitos e uso de disco."""
+
+    runtime = get_runtime(workspace)
+    state = runtime.memory.media_status()
+    kv(
+        "Mídia",
+        {
+            "ativa": "sim" if state["ativa"] else "não",
+            "teto": f"{state['teto_bytes']} bytes",
+            "registros": state["registros"],
+            "disco": f"{state['disco_bytes']} bytes",
+        },
+    )
+    info("tipos aceitos: " + ", ".join(state["tipos"]))
+
+
+@app.command(name="show")
+def show(
+    record_id: str = typer.Argument(...),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Mostra um registro completo, com saliência e estado de vida."""
+
+    runtime = get_runtime(workspace)
+    record = runtime.memory.get(record_id)
+    if record is None:
+        error(f"memória {record_id} não encontrada")
+        raise typer.Exit(code=1)
+    if as_json:
+        json_output(record.model_dump(mode="json"))
+        return
+    salience_value = _salience_of(runtime, record)
+    kv(
+        f"Memória {record.id}",
+        {
+            "namespace": record.namespace,
+            "tipo": str(record.kind),
+            "origem": record.source,
+            "importância": record.importance,
+            "acessos": record.access_count,
+            "idade (dias)": round(record.age_days, 1),
+            "saliência": salience_value,
+            "estado": _classify(runtime, salience_value),
+            "arquivada": record.archived,
+            "duplicata de": record.duplicate_of or "-",
+            "vetor": record.embedding_model or "ausente",
+            "tags": ", ".join(record.tags) or "-",
+            "task": record.task_id or "-",
+            "modalidade": record.modality,
+            "mídia": describe(record.asset) if record.asset else "-",
+            "pii removido": ", ".join(
+                f"{count} {name}" for name, count in (record.metadata.get("pii_removido") or {}).items()
+            )
+            or "-",
+        },
+    )
+    info(record.content[:600])
+
+
+@app.command(name="list")
+def list_memory(
+    namespace: str = typer.Option(None, "--namespace", "-n"),
+    kind: str = typer.Option(None, "--kind", "-k"),
+    limit: int = typer.Option(20, "--limit", "-l"),
+    archived: bool = typer.Option(False, "--archived"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Lista registros recentes."""
+
+    runtime = get_runtime(workspace)
+    records = runtime.memory.list(namespace=namespace, limit=limit, include_archived=archived)
+    if kind:
+        records = [record for record in records if str(record.kind) == kind]
+    if as_json:
+        json_output([record.model_dump(mode="json") for record in records])
+        return
+    if not records:
+        info("memória vazia")
+        return
+    table(
+        "Memória recente",
+        ["id", "namespace", "tipo", "estado", "acessos", "resumo", "criado em"],
+        [
+            [
+                record.id,
+                record.namespace,
+                record.kind,
+                _classify(runtime, _salience_of(runtime, record)),
+                record.access_count,
+                (record.summary or record.content)[:50],
+                record.created_at.strftime("%Y-%m-%d %H:%M"),
+            ]
+            for record in records
+        ],
+    )
+
+
+@app.command(name="consolidate")
+def consolidate(
+    apply: bool = typer.Option(False, "--apply", help="Executa (sem isso é só relatório)"),
+    prune: bool = typer.Option(False, "--prune", help="Remover arquivados vencidos"),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Near-duplicatas são arquivadas; a mais saliente sobrevive."""
+
+    runtime = get_runtime(workspace)
+    report = runtime.memory.consolidate(apply=apply, prune=prune)
+    if as_json:
+        json_output(report)
+        return
+    kv(
+        "Consolidação",
+        {
+            "registros varridos": report["scanned"],
+            "duplicatas detectadas": report["duplicates"],
+            "arquivadas": report["archived"],
+            "podáveis (retenção vencida)": report["prunable"],
+            "removidas": report["pruned"],
+            "aplicado": report["applied"],
+        },
+    )
+    if report["pairs"]:
+        table(
+            "Pares (vencedor × arquivado)",
+            ["vencedor", "arquivado", "cosseno", "saliência vencedora", "saliência arquivada"],
+            [
+                [pair["winner"], pair["loser"], pair["cosine"], pair["winner_salience"], pair["loser_salience"]]
+                for pair in report["pairs"]
+            ],
+        )
+    if not apply:
+        warning("nada foi alterado: rode com --apply para arquivar")
+
+
+@app.command(name="reindex")
+def reindex(
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Reconstrói os vetores semânticos (troca de modelo ou acervo antigo)."""
+
+    runtime = get_runtime(workspace)
+    report = runtime.memory.reindex()
+    if as_json:
+        json_output(report)
+        return
+    kv(
+        "Reindexação",
+        {
+            "registros": report["total"],
+            "vetores reconstruídos": report["rebuilt"],
+            "modelo": report["model"],
+            "dimensão": report["dimension"],
+        },
+    )
+    success("vetores atualizados")
+
+
+@app.command(name="forget")
+def forget(
+    record_id: str = typer.Argument(...),
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+):
+    """Remove uma memória de verdade (registro + índice + vetor)."""
+
+    runtime = get_runtime(workspace)
+    if not runtime.memory.forget(record_id):
+        error(f"memória {record_id} não encontrada")
+        raise typer.Exit(code=1)
+    success(f"memória {record_id} esquecida")
+
+
+@app.command(name="stats")
+def stats(
+    workspace: Path = typer.Option(None, "--workspace", "-w"),
+    as_json: bool = typer.Option(False, "--json"),
+):
+    """Estatísticas: tipos, namespaces, vetores e distribuição de saliência."""
+
+    runtime = get_runtime(workspace)
+    data = runtime.memory.stats()
+    if as_json:
+        json_output(data)
+        return
+    kv(
+        "Memória",
+        {
+            "total": data["total"],
+            "ativas": data["active"],
+            "arquivadas": data["archived"],
+            "saliência média": data["avg_salience"],
+            "modelo de embedding": f"{data['model']} ({data['dimension']} dims)",
+            "recuperação": data["retrieval"],
+            "vetores": data["vectors"],
+            "sem vetor": data["without_vector"],
+        },
+    )
+    if data["by_kind"]:
+        table("Tipos", ["tipo", "total"], [[kind, total] for kind, total in data["by_kind"].items()])
+    if data["by_namespace"]:
+        table(
+            "Namespaces",
+            ["namespace", "total"],
+            [[name, total] for name, total in data["by_namespace"].items()],
+        )
+    table(
+        "Ciclo de vida",
+        ["estado", "registros"],
+        [[state, total] for state, total in data["distribution"].items()],
+    )
+
+
+def describe(asset) -> str:
+    from ...memory.media import describe as render
+
+    return render(asset)
+
+
+def _salience_of(runtime, record) -> float:
+    from ...memory.salience import salience
+
+    return salience(record, half_life_days=runtime.settings.config.memory.half_life_days)
+
+
+def _classify(runtime, value: float) -> str:
+    from ...memory.salience import classify
+
+    return classify(value)
+
+
+__all__ = ["app"]

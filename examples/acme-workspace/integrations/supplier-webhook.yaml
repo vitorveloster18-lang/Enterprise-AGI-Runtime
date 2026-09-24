@@ -1,0 +1,14 @@
+integrations:
+  - id: FORNECEDOR
+    name: Eventos do fornecedor (entrada)
+    type: webhook
+    description: recebe eventos de pedido; assinatura HMAC e idempotência por id
+    enabled: false
+    base_url: https://fornecedor.acme.example.com
+    inbound:
+      enabled: true
+      secret: vault:FORNECEDOR_WEBHOOK_SECRET
+      signature_header: X-EGR-Signature
+      event_id_header: X-EGR-Event-Id
+      event_type: integration.fornecedor
+      tolerance_seconds: 300

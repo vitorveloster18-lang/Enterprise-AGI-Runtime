@@ -1,0 +1,10 @@
+integrations:
+  - id: WAREHOUSE
+    name: Banco do workspace (leitura analítica)
+    type: sql
+    description: consultas de leitura sobre o banco do próprio workspace
+    enabled: false
+    dsn: sqlite:///.egr/egr.db
+    read_only: true                     # delete/update são recusados antes da política
+    timeout: 10
+    cost_per_call: 0.0

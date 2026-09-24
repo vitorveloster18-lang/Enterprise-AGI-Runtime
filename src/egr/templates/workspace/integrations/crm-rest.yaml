@@ -1,0 +1,19 @@
+# REST: o tipo mais comum — ler um sistema que já existe.
+integrations:
+  - id: CRM
+    name: CRM (clientes)
+    type: rest
+    description: leitura de clientes e contratos no CRM
+    enabled: false                      # habilitar é um ato consciente
+    base_url: https://api.exemplo.com/v1
+    auth:
+      scheme: bearer                    # none | bearer | header | basic
+      secret: vault:CRM_TOKEN           # NUNCA o token: só a referência
+    allowed_hosts: [api.exemplo.com]    # lista branca: sem isso nada sai
+    allowed_methods: [GET]              # vazio = só leitura
+    read_only: true
+    timeout: 20
+    max_response_chars: 4000
+    cost_per_call: 0.002
+    headers:
+      Accept: application/json

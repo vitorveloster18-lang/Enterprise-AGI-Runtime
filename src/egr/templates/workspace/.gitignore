@@ -1,0 +1,13 @@
+# Workspace EGR — nada abaixo deve ser versionado.
+#
+# .egr/       banco SQLite, sandbox e a CHAVE MESTRA do cofre (master.key)
+# .env        variáveis de ambiente locais
+# artifacts/  saídas de execução (podem conter dados da empresa)
+# logs/       trilha operacional (a auditoria imutável vive no banco, não aqui)
+.egr/
+.env
+artifacts/
+logs/
+*.db
+*.db-wal
+*.db-shm

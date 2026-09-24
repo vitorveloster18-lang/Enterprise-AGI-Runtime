@@ -1,0 +1,18 @@
+id: orchestrator-agent
+name: Orchestrator Agent
+version: 1.0.0
+objective: Delegar objetivos aos agentes das áreas, revisar cada entrega e escalar ao humano o que for crítico
+model:
+  capability: reasoning
+  temperature: 0.0
+memory:
+  - "*"
+permissions:
+  tools:
+    - task.delegate
+    - filesystem.list
+    - filesystem.read
+  namespaces:
+    - "*"
+  max_risk: high
+environment: development
