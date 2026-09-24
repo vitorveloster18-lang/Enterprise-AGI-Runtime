@@ -246,8 +246,8 @@ def test_integrations_disabled_by_configuration(tmp_path):
 # --------------------------------------------------------------------------- #
 # política: leitura passa, escrita pede gente
 # --------------------------------------------------------------------------- #
-def test_policy_allows_read_and_requires_approval_to_write():
-    runtime = make_runtime(Path("/tmp/egr-policy-check"))
+def test_policy_allows_read_and_requires_approval_to_write(tmp_path):
+    runtime = make_runtime(tmp_path)
 
     def decide(method: str, environment: str = "development") -> str:
         request = ToolRequest(
