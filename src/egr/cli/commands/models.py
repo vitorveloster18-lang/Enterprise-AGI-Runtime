@@ -146,6 +146,8 @@ def test_model(
             [item for item in gateway.providers if item.name == provider],
             audit=runtime.audit,
             external_ai=runtime.settings.enterprise.settings.external_ai,
+            routing=runtime.settings.config.models.routing,
+            overflow=runtime.settings.config.models.overflow,
         )
     try:
         response = gateway.complete(

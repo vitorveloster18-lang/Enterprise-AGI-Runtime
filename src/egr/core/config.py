@@ -70,6 +70,8 @@ class ProviderConfig(BaseModel):
     external: bool = False  # leaves the machine / the enterprise boundary
     pricing: PricingConfig = Field(default_factory=PricingConfig)
     options: dict[str, Any] = Field(default_factory=dict)
+    #: janela de contexto em tokens (None = desconhecida, sem corte); base do overflow
+    max_context_tokens: int | None = None
 
     def api_key(self) -> str | None:
         if not self.api_key_env:
@@ -376,6 +378,10 @@ class ModelsConfig(BaseModel):
     # cost        -> provedor mais barato primeiro (dentro da capacidade)
     # local_first -> provedores locais primeiro, externos só se necessário
     routing: Literal["priority", "cost", "local_first"] = "priority"
+    # truncate -> corta a conversa na janela do provedor
+    # escalate  -> sobe para o próximo provedor que comporta (senão, trunca)
+    # deny      -> barra com ContextOverflow
+    overflow: Literal["truncate", "escalate", "deny"] = "escalate"
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     providers: list[ProviderConfig] = Field(
         default_factory=lambda: [ProviderConfig(name="echo", type="echo", capabilities=["reasoning", "chat"])]

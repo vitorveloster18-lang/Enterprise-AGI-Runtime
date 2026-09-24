@@ -242,6 +242,7 @@ class Runtime:
             usage_repository=self.usage,
             budget=settings.config.models.budget,
             routing=settings.config.models.routing,
+            overflow=settings.config.models.overflow,
         )
 
         # ---- execution ----------------------------------------------

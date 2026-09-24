@@ -55,6 +55,10 @@ class NoProviderAvailable(ProviderError):
     pass
 
 
+class ContextOverflow(ProviderError):
+    """Prompt estimado além da janela do provedor (política `deny`)."""
+
+
 class SandboxViolation(ToolError):
     """A tool tried to escape its allowed roots."""
 

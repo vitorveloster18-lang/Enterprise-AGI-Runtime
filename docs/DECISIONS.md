@@ -1208,3 +1208,29 @@ e-mail. Principal desabilitado localmente barra mesmo com JWT válido (a
 revogação local continua valendo). IdPs RS256/JWKS entram trocando o
 verificador (`verify(raw) -> SSOClaims`) — a costura é a interface, não o
 algoritmo. Tokens `egr_` seguem intactos para serviços e agentes.
+
+## ADR-065 — Extensões cognitivas: local validado + overflow/escalação (fatia 6)
+
+**Data:** 2026-09-22 · **Estado:** aceito · **Escopo:** Ollama por contrato, `models.overflow`, `docs/LOCAL.md`
+
+**Contexto:** o Runtime fecha quando roda dentro da empresa — e quando o
+modelo pequeno não comporta a conversa, alguém precisa decidir: cortar,
+subir para um modelo maior ou barrar. Essa decisão não existia.
+
+**Decisão:** cada provider declara `max_context_tokens` (None = desconhecida,
+sem corte) e o gateway aplica `models.overflow`: `truncate` (preserva system,
+mantém a cauda, corta o meio), `escalate` (padrão: sobe para o próximo que
+comporta; se ninguém comporta, trunca no primeiro — fail-operational) ou
+`deny` (`ContextOverflow`). Estimativa barata (~4 chars/token, documentada
+como aproximação). Tudo auditado em `model.overflow` com política, ação e
+tamanhos. O Ollama é validado por contrato com httpx dublado (complete,
+`format: json`, uso, `health`, inalcançável → `ProviderUnavailable`); o guia
+`docs/LOCAL.md` cobre instalação, modelos por papel, hardware e a rota
+híbrida (nuvem no piloto → tudo local, sem mudar agente).
+
+**Consequências:** `models test --provider` agora preserva `routing` e
+`overflow` (antes reconstruía o gateway só com `external_ai`). A escalação
+cruzando para provider externo respeita a fronteira de dados existente
+(`external_ai: forbidden` barra antes). Estimativa ≠ tokenização real: janelas
+justas devem declarar folga — o guia recomenda declarar `num_ctx` igual ao
+`max_context_tokens` para não mentir para o Ollama.

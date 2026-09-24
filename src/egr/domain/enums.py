@@ -68,6 +68,8 @@ class EventType(BaseStrEnum):
     MODEL_CALLED = "model.called"
     MODEL_FAILED = "model.failed"
     MODEL_BUDGET_BLOCKED = "model.budget_blocked"
+    # extensões cognitivas (fatia 6: overflow de contexto e escalação)
+    MODEL_OVERFLOW = "model.overflow"
     # memory / artifacts
     MEMORY_WRITTEN = "memory.written"
     # lacuna 5b: memória multimodal e limpeza de PII na escrita

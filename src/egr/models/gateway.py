@@ -18,6 +18,7 @@ from typing import Any
 from ..core.config import BudgetConfig, ProviderConfig
 from ..core.errors import (
     BudgetExceeded,
+    ContextOverflow,
     NoProviderAvailable,
     PolicyDenied,
     ProviderError,
@@ -164,6 +165,7 @@ class ModelGateway:
         usage_repository=None,
         budget: BudgetConfig | None = None,
         routing: str = "priority",
+        overflow: str = "escalate",
     ):
         self.providers = [provider for provider in providers if provider.config.enabled]
         self.audit = audit
@@ -173,6 +175,9 @@ class ModelGateway:
         self.usage = usage_repository
         self.budget = budget or BudgetConfig()
         self.routing = routing
+        if overflow not in ("truncate", "escalate", "deny"):
+            raise ValueError(f"overflow inválido: {overflow!r} (truncate|escalate|deny)")
+        self.overflow = overflow
 
     # ---- routing -----------------------------------------------------
     def candidates(
@@ -247,9 +252,17 @@ class ModelGateway:
                 f"no provider for capability '{request.capability}' (external blocked by policy)"
             )
 
+        prompt_text = "\n".join(message.content for message in request.messages)
+        estimated = estimate_tokens(prompt_text)
+        order = self._apply_overflow_routing(
+            candidates, estimated, request, task_id, agent_id, environment
+        )
         last_error: Exception | None = None
-        for provider in candidates:
+        for provider in order:
             prepared = self._apply_data_boundary(request, provider, task_id, agent_id, environment)
+            prepared = self._fit_provider(
+                prepared, provider, estimated, request, task_id, agent_id, environment
+            )
             started = time.perf_counter()
             try:
                 response = provider.complete(prepared)
@@ -468,12 +481,156 @@ class ModelGateway:
     def list_providers(self) -> list[dict[str, Any]]:
         return [provider.describe() for provider in self.candidates("reasoning", True)]
 
+    # ---- overflow de contexto (fatia 6) --------------------------------
+    @staticmethod
+    def _fits(provider: ModelProvider, estimated: int, request: CompletionRequest) -> bool:
+        max_ctx = provider.config.max_context_tokens
+        if not max_ctx:
+            return True
+        return estimated + (request.max_tokens or 0) <= max_ctx
+
+    def _apply_overflow_routing(
+        self, candidates, estimated, request, task_id, agent_id, environment
+    ) -> list:
+        if self.overflow != "escalate":
+            return list(candidates)
+        fitting = [item for item in candidates if self._fits(item, estimated, request)]
+        skipped = [item for item in candidates if item not in fitting]
+        if not skipped:
+            return list(candidates)
+        if fitting:
+            if self.audit:
+                self.audit.record(
+                    EventType.MODEL_OVERFLOW,
+                    actor=agent_id or "runtime",
+                    task_id=task_id,
+                    agent_id=agent_id,
+                    environment=environment or "development",
+                    payload={
+                        "policy": "escalate",
+                        "action": "escalated",
+                        "from": skipped[0].name,
+                        "to": fitting[0].name,
+                        "estimated_tokens": estimated,
+                        "max_context_tokens": skipped[0].config.max_context_tokens,
+                    },
+                )
+            return fitting
+        if self.audit:
+            self.audit.record(
+                EventType.MODEL_OVERFLOW,
+                actor=agent_id or "runtime",
+                task_id=task_id,
+                agent_id=agent_id,
+                environment=environment or "development",
+                payload={
+                    "policy": "escalate",
+                    "action": "escalate_failed",
+                    "detail": "nenhum provedor comporta; truncando no primeiro",
+                    "estimated_tokens": estimated,
+                },
+            )
+        return list(candidates)
+
+    def _fit_provider(
+        self, prepared, provider, estimated, request, task_id, agent_id, environment
+    ):
+        max_ctx = provider.config.max_context_tokens
+        if not max_ctx or self._fits(provider, estimated, request):
+            return prepared
+        if self.overflow == "deny":
+            if self.audit:
+                self.audit.record(
+                    EventType.MODEL_OVERFLOW,
+                    actor=agent_id or "runtime",
+                    task_id=task_id,
+                    agent_id=agent_id,
+                    environment=environment or "development",
+                    payload={
+                        "policy": "deny",
+                        "action": "denied",
+                        "provider": provider.name,
+                        "estimated_tokens": estimated,
+                        "max_context_tokens": max_ctx,
+                    },
+                )
+            raise ContextOverflow(
+                f"contexto estimado em {estimated} tokens excede a janela de "
+                f"'{provider.name}' ({max_ctx} tokens)"
+            )
+        truncated, info = truncate_to_fit(prepared, max_ctx)
+        if self.audit:
+            self.audit.record(
+                EventType.MODEL_OVERFLOW,
+                actor=agent_id or "runtime",
+                task_id=task_id,
+                agent_id=agent_id,
+                environment=environment or "development",
+                payload={
+                    "policy": self.overflow,
+                    "action": "truncated",
+                    "provider": provider.name,
+                    "estimated_tokens": estimated,
+                    "max_context_tokens": max_ctx,
+                    **info,
+                },
+            )
+        return truncated
+
     def health(self) -> dict[str, dict[str, Any]]:
         report: dict[str, dict[str, Any]] = {}
         for provider in sorted(self.providers, key=lambda p: (-p.priority, p.name)):
             ok, detail = provider.health()
             report[provider.name] = {**provider.describe(), "healthy": ok, "detail": detail}
         return report
+
+
+def estimate_tokens(text: str) -> int:
+    """Heurística barata (~4 chars/token em PT/EN). Aproxima, não promete."""
+
+    return max(1, len(text or "") // 4)
+
+
+def truncate_to_fit(
+    request: CompletionRequest, max_context_tokens: int
+) -> tuple[CompletionRequest, dict]:
+    """Cabe a conversa na janela: preserva `system`, mantém a cauda, corta o meio."""
+
+    reserve = (request.max_tokens or 0) + 64
+    budget = max(256, max_context_tokens - reserve)
+    system = [message for message in request.messages if message.role == "system"]
+    rest = [message for message in request.messages if message.role != "system"]
+    kept_rest: list[Message] = []
+    used = sum(estimate_tokens(message.content) for message in system)
+    for message in reversed(rest):
+        cost = estimate_tokens(message.content)
+        if used + cost > budget:
+            break
+        kept_rest.append(message)
+        used += cost
+    kept_rest.reverse()
+    kept = system + kept_rest
+    if not kept:
+        if not system:
+            return request, {"dropped_chars": 0, "kept_messages": 0, "total_messages": 0}
+        biggest = max(system, key=lambda message: len(message.content))
+        kept = [Message(role="system", content=biggest.content[: max(256, budget) * 4])]
+    dropped_chars = sum(len(message.content) for message in request.messages) - sum(
+        len(message.content) for message in kept
+    )
+    truncated = CompletionRequest(
+        messages=kept,
+        capability=request.capability,
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
+        json_mode=request.json_mode,
+        metadata={**request.metadata, "overflow": {"action": "truncated"}},
+    )
+    return truncated, {
+        "dropped_chars": dropped_chars,
+        "kept_messages": len(kept),
+        "total_messages": len(request.messages),
+    }
 
 
 def build_providers(
@@ -516,4 +673,6 @@ __all__ = [
     "ModelProvider",
     "ProviderUnavailable",
     "build_providers",
+    "estimate_tokens",
+    "truncate_to_fit",
 ]
