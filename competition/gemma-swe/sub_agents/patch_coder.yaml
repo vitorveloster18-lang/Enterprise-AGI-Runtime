@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/google/adk-python/refs/heads/main/src/google/adk/agents/config_schemas/AgentConfig.json
+# Coder: applies minimal patches and runs tests. Only writer in the team.
+agent_class: LlmAgent
+name: patch_coder
+model: gemma-4-31b-it-qat-w4a16-ct
+description: Applies minimal code patches and proves them with test runs.
+instruction: !include ../prompts/coder.md
+tools:
+  - name: read_file
+  - name: edit_file
+  - name: write_file
+  - name: run_command
+output_key: patch_report

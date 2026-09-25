@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/google/adk-python/refs/heads/main/src/google/adk/agents/config_schemas/AgentConfig.json
+# Read-only analyst: graph-first repo navigation. No write/exec tools on purpose.
+# VERIFICAR: nomes das tools e load_skill_resource.
+agent_class: LlmAgent
+name: code_analyzer
+model: gemma-4-31b-it-qat-w4a16-ct
+description: Maps root cause, files, symbols and covering tests. Never edits code.
+instruction: !include ../prompts/analyzer.md
+tools:
+  - name: read_file
+  - name: get_code_neighbors
+  - name: search_similar_code
+  - name: get_code_subgraph
+  - name: load_skill_resource
+output_key: analysis_report

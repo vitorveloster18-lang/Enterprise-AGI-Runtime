@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/google/adk-python/refs/heads/main/src/google/adk/agents/config_schemas/AgentConfig.json
+# Reviewer: accept/revise verdicts (EGR slice 3). Read-only + test runs.
+agent_class: LlmAgent
+name: patch_reviewer
+model: gemma-4-31b-it-qat-w4a16-ct
+description: Reviews patches for cause-fix, diff discipline and test evidence.
+instruction: !include ../prompts/reviewer.md
+tools:
+  - name: read_file
+  - name: get_code_neighbors
+  - name: get_code_subgraph
+  - name: run_command
+output_key: review_verdict

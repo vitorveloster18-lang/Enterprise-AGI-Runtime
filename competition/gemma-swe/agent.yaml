@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/google/adk-python/refs/heads/main/src/google/adk/agents/config_schemas/AgentConfig.json
+# Root: orquestrador. Tradução direta da fatia 3 do EGR (task.delegate).
+# Pipeline: analyze -> patch -> verify -> submit, com no máximo 3 rounds de revisão.
+# VERIFICAR (ver README checklist): tools, sub_agents vs agent_tool, !include,
+# generate_content_config, nome exato do modelo.
+agent_class: LlmAgent
+name: swe_orchestrator
+model: gemma-4-31b-it-qat-w4a16-ct
+description: "Orchestrates SWE repair in /workspace: delegates analysis, patching and review, then submits."
+instruction: !include prompts/system.md
+generate_content_config: !include configs/sampling.yaml
+sub_agents:
+  - config_path: sub_agents/code_analyzer.yaml
+  - config_path: sub_agents/patch_coder.yaml
+  - config_path: sub_agents/patch_reviewer.yaml
+tools:
+  - name: get_status
+  - name: submit_patch
+  - name: run_command
+  - name: read_file
+output_key: final_patch_summary

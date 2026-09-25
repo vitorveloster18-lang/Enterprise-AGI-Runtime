@@ -1,0 +1,5 @@
+# Parâmetros de geração do orquestrador: determinístico (revisão não é lugar de criatividade).
+# VERIFICAR: formato exato em sample_submission/configs/sampling.yaml.
+temperature: 0.0
+max_output_tokens: 4096
+top_p: 0.95

@@ -1,0 +1,4 @@
+# LoRA entra aqui quando (e se) o placar justificar o treino:
+# adapters/<nome>/adapter_config.json + adapter_model.safetensors,
+# referenciado como `adapter: <nome>` no agent.yaml do agente.
+# Treinar o 31B exige GPU alugada (A100 40GB+) — ver README.
