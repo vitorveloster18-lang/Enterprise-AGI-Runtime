@@ -49,12 +49,16 @@ no código correspondem a esta lista:
    `load_skill_resource`) e o frontmatter do `SKILL.md`.
 8. **`adapter:`**: confirmar chave por agente (só quando houver LoRA).
 
-## Estratégia de iteração
+## Estratégia de iteração (solo + API, sem GPU)
 
-1. Validar o esqueleto (`check.py` + conferência do item acima).
-2. Rodar o harness local de avaliação (dataset de treino do Kaggle) no PC do
-   time — CPU/RAM bastam para o harness; o modelo pesado fica no avaliador.
-3. Iterar prompts/skills pelo placar (pass/fail por patch, como SWE-bench).
+1. Baixar o dataset (aba **Data** da competição — aceitar as regras primeiro):
+   primeiro `HARNESS_README.md` + `sample_submission/` (para a conferência
+   acima), depois `tasks.jsonl` + `graphs/` + `embeddings/`. O resto
+   (`docker/`, `wheels/`, `snapshots/`) só se precisar.
+2. Rodar `localrun/inspect.py` no dataset e mandar a saída (adapta o harness
+   aos formatos reais). Detalhes em `localrun/README.md`.
+3. Iterar prompts/skills pelo placar local (`python -m localrun.run`), amostra
+   pequena primeiro (custo da API!), escalando aos poucos.
 4. LoRA só se o placar justificar: alugar A100 40GB por horas, treino pequeno
    e bem definido (orçamento estimado: US$100–300).
 
